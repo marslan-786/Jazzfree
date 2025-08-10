@@ -55,7 +55,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
         # اگر سب چینلز جوائن ہیں یا جس چینل کی ID نہیں ہے اس میں چیک نہیں کرنا تو آگے بڑھائیں
         keyboard = [
-            [InlineKeyboardButton("Login", callback_data="login")],
             [InlineKeyboardButton("Claim Your MB", callback_data="claim_menu")]
         ]
         await query.edit_message_text("You have joined all required channels. Please choose an option:", reply_markup=InlineKeyboardMarkup(keyboard))
@@ -77,6 +76,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_states[user_id] = {"stage": "awaiting_phone_for_claim", "claim_type": claim_type}
         await query.edit_message_text("Please send the phone number on which you want to activate your claim:")
 
+import json
+
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:  # اگر message ہی نہیں ہے
         return
@@ -89,10 +90,15 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         phone = text.strip()
         url = f"https://data-api.impossible-world.xyz/api/login?msisdn={phone}"
         try:
-            requests.get(url)
-            user_states[user_id] = {"stage": "awaiting_otp", "phone": phone}
-            await update.message.reply_text("OTP successfully sent! Please enter your 4-digit OTP:")
-        except:
+            response = requests.get(url)
+            data = response.json()
+            if data.get("status") == True:
+                user_states[user_id] = {"stage": "awaiting_otp", "phone": phone}
+                await update.message.reply_text("OTP successfully sent! Please enter your 4-digit OTP:")
+            else:
+                error_msg = data.get("message", "Failed to send OTP. Please try again.")
+                await update.message.reply_text(error_msg)
+        except Exception as e:
             await update.message.reply_text("Failed to send OTP. Please try again.")
 
     elif state.get("stage") == "awaiting_otp":
@@ -100,13 +106,18 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         phone = state.get("phone")
         url = f"https://data-api.impossible-world.xyz/api/login?msisdn={phone}&otp={otp}"
         try:
-            requests.get(url)
-            user_states[user_id] = {"stage": "logged_in", "phone": phone}
-            keyboard = [
-                [InlineKeyboardButton("Claim Your MB", callback_data="claim_menu")]
-            ]
-            await update.message.reply_text("OTP verified successfully! You can now claim your MB.", reply_markup=InlineKeyboardMarkup(keyboard))
-        except:
+            response = requests.get(url)
+            data = response.json()
+            if data.get("status") == True:
+                user_states[user_id] = {"stage": "logged_in", "phone": phone}
+                keyboard = [
+                    [InlineKeyboardButton("Claim Your MB", callback_data="claim_menu")]
+                ]
+                await update.message.reply_text("OTP verified successfully! You can now claim your MB.", reply_markup=InlineKeyboardMarkup(keyboard))
+            else:
+                error_msg = data.get("message", "Invalid OTP. Please try again.")
+                await update.message.reply_text(error_msg)
+        except Exception as e:
             await update.message.reply_text("Invalid OTP. Please try again.")
 
     elif state.get("stage") == "awaiting_phone_for_claim":
@@ -120,9 +131,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             success_msg = "100 GB claim activated successfully!"
 
         try:
-            requests.get(url)
-            await update.message.reply_text(success_msg)
-        except:
+            response = requests.get(url)
+            data = response.json()
+            if data.get("status") == True:
+                await update.message.reply_text(success_msg)
+            else:
+                error_msg = data.get("message", "Failed to activate your claim. Please try again.")
+                await update.message.reply_text(error_msg)
+        except Exception as e:
             await update.message.reply_text("Failed to activate your claim. Please try again.")
 
         user_states[user_id] = {"stage": "logged_in", "phone": phone}
