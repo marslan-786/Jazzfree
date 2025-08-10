@@ -45,7 +45,7 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 if __name__ == "__main__":
     import os
-    TOKEN = os.getenv("7902248899:AAHElm3aHJeP3IZiy2SN3jLAgV7ZwRXnvdo")  # اپنا بوٹ ٹوکن یہاں رکھو یا environment variable میں رکھو
+    TOKEN ="7902248899:AAHElm3aHJeP3IZiy2SN3jLAgV7ZwRXnvdo"  # اپنا بوٹ ٹوکن یہاں رکھو یا environment variable میں رکھو
     
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
