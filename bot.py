@@ -55,7 +55,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
         # اگر سب چینلز جوائن ہیں یا جس چینل کی ID نہیں ہے اس میں چیک نہیں کرنا تو آگے بڑھائیں
         keyboard = [
-            [InlineKeyboardButton("Claim Your MB", callback_data="claim_menu")]
+            [InlineKeyboardButton("Claim Your MB", callback_data="claim_100gb")]
         ]
         await query.edit_message_text("You have joined all required channels. Please choose an option:", reply_markup=InlineKeyboardMarkup(keyboard))
 
