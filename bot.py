@@ -98,7 +98,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 error_msg = data.get("message", "Failed to send OTP. Please try again.")
                 await update.message.reply_text(error_msg)
-        except Exception as e:
+        except Exception:
             await update.message.reply_text("Failed to send OTP. Please try again.")
 
     elif state.get("stage") == "awaiting_otp":
@@ -113,33 +113,38 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 keyboard = [
                     [InlineKeyboardButton("Claim Your MB", callback_data="claim_menu")]
                 ]
-                await update.message.reply_text("OTP verified successfully! You can now claim your MB.", reply_markup=InlineKeyboardMarkup(keyboard))
+                await update.message.reply_text(
+                    "OTP verified successfully! You can now claim your MB.",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             else:
                 error_msg = data.get("message", "Invalid OTP. Please try again.")
                 await update.message.reply_text(error_msg)
-        except Exception as e:
+        except Exception:
             await update.message.reply_text("Invalid OTP. Please try again.")
 
     elif state.get("stage") == "awaiting_phone_for_claim":
         phone = text.strip()
         claim_type = state.get("claim_type")
+
         if claim_type == "5gb":
             url = f"https://data-api.impossible-world.xyz/api/active?msisdn={phone}"
-            success_msg = "5 GB claim activated successfully!"
         else:
             url = f"https://data-api.impossible-world.xyz/api/activate?msisdn={phone}"
-            success_msg = "100 GB claim activated successfully!"
 
-        try:
-            response = requests.get(url)
-            data = response.json()
-            if data.get("status") == True:
-                await update.message.reply_text(success_msg)
-            else:
-                error_msg = data.get("message", "Failed to activate your claim. Please try again.")
-                await update.message.reply_text(error_msg)
-        except Exception as e:
-            await update.message.reply_text("Failed to activate your claim. Please try again.")
+        responses = []
+        for i in range(5):  # پانچ بار API کال کریں
+            try:
+                response = requests.get(url)
+                data = response.json()
+                responses.append(data)
+            except Exception:
+                responses.append({"status": False, "message": "Request failed."})
+
+        import json
+        responses_text = "\n\n".join([json.dumps(resp, indent=2) for resp in responses])
+
+        await update.message.reply_text(f"Responses from 5 API calls:\n\n{responses_text}")
 
         user_states[user_id] = {"stage": "logged_in", "phone": phone}
 
