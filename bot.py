@@ -219,6 +219,7 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), message_handler))
     app.add_error_handler(error_handler)
-
+    application.add_handler(CommandHandler("set", set_command))
+    
     print("Bot is running...")
     app.run_polling()
