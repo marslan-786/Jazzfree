@@ -118,7 +118,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         await safe_edit(query, "Please send the phone number on which you want to activate your claim:")
 
+# --- Default config ---
+request_count = 5  # Global API calls count
+
+async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global request_count
+    try:
+        count = int(context.args[0])
+        if count < 1:
+            raise ValueError
+        request_count = count
+        await update.message.reply_text(f"✅ اب سے تمام یوزرز کے لیے API کالز کی تعداد {count} مقرر کر دی گئی ہے۔")
+    except (IndexError, ValueError):
+        await update.message.reply_text("⚠️ صحیح استعمال: /set 5 (جہاں 5 کالز کی تعداد ہے)")
+
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global request_count
     if not update.message:
         return
 
@@ -160,20 +175,24 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else f"https://data-api.impossible-world.xyz/api/activate?msisdn={phone}"
         )
 
-        responses = await asyncio.gather(*(fetch_json(url) for _ in range(5)), return_exceptions=True)
-
         package_activated = False
-        for resp in responses:
+        for i in range(1, request_count + 1):
+            resp = await fetch_json(url)
+
             if isinstance(resp, dict):
                 msg = str(resp.get("message", "")).lower()
                 if "successfully received" in msg:
                     package_activated = True
-                    break
+                    await safe_reply(update.message, f"📨 ریکویسٹ {i}: ✅ کامیاب! آپ کا پیکج ایکٹیویٹ ہو چکا ہے۔")
+                elif "no message" in msg or "server down" in msg:
+                    await safe_reply(update.message, f"📨 ریکویسٹ {i}: ❌ پیکج ایکٹیویٹ نہیں ہوا۔")
+                else:
+                    await safe_reply(update.message, f"📨 ریکویسٹ {i}: ❌ پیکج ایکٹیویٹ نہیں ہوا۔")
+            else:
+                await safe_reply(update.message, f"📨 ریکویسٹ {i}: ❌ API ایرر: {resp}")
 
-        if package_activated:
-            await safe_reply(update.message, "✅ آپ کا پیکج ایکٹیویٹ ہو چکا ہے۔")
-        else:
-            await safe_reply(update.message, "❌ آپ کا پیکج ایکٹیویٹ نہیں ہوا، براہ کرم دوبارہ کوشش کریں۔")
+        if not package_activated:
+            await safe_reply(update.message, "❌ تمام کوششوں کے باوجود پیکج ایکٹیویٹ نہیں ہوا، براہ کرم دوبارہ کوشش کریں۔")
 
         user_states[user_id] = {"stage": "logged_in", "phone": phone}
 
