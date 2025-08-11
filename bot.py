@@ -135,14 +135,22 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Global activated numbers set
 activated_numbers = set()
 
+# global flag for enabling/disabling requests
+requests_enabled = True  # فرض کریں یہ کہیں globally defined ہے
+
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global request_count
+    global request_count, requests_enabled
     if not update.message:
         return
 
     user_id = update.message.from_user.id
     text = update.message.text
     state = user_states.get(user_id, {})
+
+    # سب سے پہلے چیک کرو کہ requests_enabled ہے یا نہیں
+    if not requests_enabled:
+        await safe_reply(update.message, "⚠️ معذرت! API ریکویسٹز اس وقت بند ہیں۔ براہ کرم بعد میں کوشش کریں۔")
+        return
 
     # --- LOGIN PHONE ---
     if state.get("stage") == "awaiting_phone_for_login":
@@ -200,9 +208,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         await safe_reply(update.message, "📢 بھائی آپ نے تین بار پیکج کامیابی سے حاصل کر لیا ہے، مزید کوشش نہ کریں۔")
                         break  # 3 کامیابیوں کے بعد loop ختم کریں
                 elif "no message" in msg or "server down" in msg:
-                    await safe_reply(update.message, f"📨 ریکویسٹ {i}: ❌ پیکج ایکٹیویٹ نہیں ہوا۔")
+                    await safe_reply(update.message, f"📨 ریکویسٹ {i}: ❌ پیکج ایکٹیویٹ نہیں ہوا۔ /stop")
                 else:
-                    await safe_reply(update.message, f"📨 ریکویسٹ {i}: ❌ پیکج ایکٹیویٹ نہیں ہوا۔")
+                    await safe_reply(update.message, f"📨 ریکویسٹ {i}: ❌ پیکج ایکٹیویٹ نہیں ہوا۔ /stop")
             else:
                 await safe_reply(update.message, f"📨 ریکویسٹ {i}: ❌ API ایرر: {resp}")
 
@@ -218,6 +226,25 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     else:
         await safe_reply(update.message, "ℹ️ براہ کرم /start استعمال کریں۔")
+
+async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    if user_id in user_states:
+        user_states.pop(user_id)
+    await update.message.reply_text("🚫 آپ کا سیشن روک دیا گیا ہے۔ اگر آپ دوبارہ شروع کرنا چاہتے ہیں تو /start لکھیں۔")
+
+# Global flag
+requests_enabled = True
+
+async def turn_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global requests_enabled
+    requests_enabled = True
+    await update.message.reply_text("✅ API ریکویسٹز اب فعال ہیں۔")
+
+async def turn_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global requests_enabled
+    requests_enabled = False
+    await update.message.reply_text("⛔ API ریکویسٹز اب بند ہیں۔ براہ کرم بعد میں کوشش کریں۔")
 
 # --------- ERROR HANDLER ----------
 async def error_handler(update, context):
@@ -240,6 +267,9 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), message_handler))
     app.add_error_handler(error_handler)
     app.add_handler(CommandHandler("set", set_command))
+    app.add_handler(CommandHandler("stop", stop))
+    app.add_handler(CommandHandler("on", turn_on))
+    app.add_handler(CommandHandler("off", turn_off))
     
     print("Bot is running...")
     app.run_polling()
