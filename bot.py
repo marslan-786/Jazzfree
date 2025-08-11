@@ -130,45 +130,55 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if state.get("stage") == "awaiting_phone_for_login":
         phone = text.strip()
         data = await fetch_json(f"https://data-api.impossible-world.xyz/api/login?msisdn={phone}")
-        await safe_reply(update.message, f"API Response:\n{json.dumps(data, indent=2)[:500]}")
         if data.get("status"):
             user_states[user_id] = {"stage": "awaiting_otp", "phone": phone}
-            await safe_reply(update.message, "OTP successfully sent! Please enter your 4-digit OTP:")
+            await safe_reply(update.message, "📲 OTP بھیج دیا گیا ہے! براہ کرم اپنا 4 ہندسوں کا OTP درج کریں۔")
         else:
-            await safe_reply(update.message, "Failed to send OTP. Please try again.")
+            await safe_reply(update.message, "❌ OTP بھیجنے میں ناکامی۔ براہ کرم دوبارہ کوشش کریں۔")
 
     # --- LOGIN OTP ---
     elif state.get("stage") == "awaiting_otp":
         otp = text.strip()
         phone = state.get("phone")
         data = await fetch_json(f"https://data-api.impossible-world.xyz/api/login?msisdn={phone}&otp={otp}")
-        await safe_reply(update.message, f"API Response:\n{json.dumps(data, indent=2)[:500]}")
         if data.get("status"):
             user_states[user_id] = {"stage": "logged_in", "phone": phone}
-            await safe_reply(update.message, "OTP verified successfully! You can now claim your MB.",
-                             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Claim Your MB", callback_data="claim_menu")]]))
+            await safe_reply(
+                update.message,
+                "✅ OTP کامیابی سے تصدیق ہوگیا! اب آپ اپنا MB کلیم کر سکتے ہیں۔",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📦 Claim Your MB", callback_data="claim_menu")]])
+            )
         else:
-            await safe_reply(update.message, "Invalid OTP. Please try again.")
+            await safe_reply(update.message, "❌ غلط OTP۔ براہ کرم دوبارہ کوشش کریں۔")
 
     # --- CLAIM ---
     elif state.get("stage") == "awaiting_phone_for_claim":
         phone = text.strip()
-        url = f"https://data-api.impossible-world.xyz/api/active?msisdn={phone}" \
-            if state.get("claim_type") == "5gb" else \
-            f"https://data-api.impossible-world.xyz/api/activate?msisdn={phone}"
+        url = (
+            f"https://data-api.impossible-world.xyz/api/active?msisdn={phone}"
+            if state.get("claim_type") == "5gb"
+            else f"https://data-api.impossible-world.xyz/api/activate?msisdn={phone}"
+        )
 
         responses = await asyncio.gather(*(fetch_json(url) for _ in range(5)), return_exceptions=True)
-        reply_texts = []
-        for idx, resp in enumerate(responses, 1):
+
+        package_activated = False
+        for resp in responses:
             if isinstance(resp, dict):
-                reply_texts.append(f"Response {idx}:\n{json.dumps(resp, indent=2)[:300]}")
-            else:
-                reply_texts.append(f"Response {idx} failed: {resp}")
-        await safe_reply(update.message, "\n\n".join(reply_texts))
+                msg = str(resp.get("message", "")).lower()
+                if "successfully received" in msg:
+                    package_activated = True
+                    break
+
+        if package_activated:
+            await safe_reply(update.message, "✅ آپ کا پیکج ایکٹیویٹ ہو چکا ہے۔")
+        else:
+            await safe_reply(update.message, "❌ آپ کا پیکج ایکٹیویٹ نہیں ہوا، براہ کرم دوبارہ کوشش کریں۔")
+
         user_states[user_id] = {"stage": "logged_in", "phone": phone}
 
     else:
-        await safe_reply(update.message, "Please use /start to begin.")
+        await safe_reply(update.message, "ℹ️ براہ کرم /start استعمال کریں۔")
 
 # --------- ERROR HANDLER ----------
 async def error_handler(update, context):
