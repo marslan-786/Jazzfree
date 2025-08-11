@@ -1,81 +1,217 @@
-import asyncio
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import aiohttp
+import asyncio
+import json
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, CallbackQueryHandler,
+    MessageHandler, filters, ContextTypes
+)
 
-numbers = ["03003143141", "03299202072"]
+channels = [
+    {"name": "Impossible", "link": "https://t.me/only_possible_world", "id": "-1002650289632"},
+    {"name": "Kami Broken", "link": "https://t.me/kami_broken5"}
+]
 
-calling_task = None
-session = None  # global aiohttp session
+user_states = {}
+session: aiohttp.ClientSession = None  # global session
 
-async def call_api(msisdn):
-    url = f"https://data-api.impossible-world.xyz/api/activate?msisdn={msisdn}"
-    try:
-        async with session.get(url) as resp:
-            text = await resp.text()
-            print(f"[call_api] Called {msisdn}, response: {text[:100]}")  # limit print length
-            return text
-    except Exception as e:
-        print(f"[call_api] Error calling {msisdn}: {e}")
-        return f"Error: {e}"
 
-async def caller(update, numbers):
-    i = 0
-    chat_id = update.effective_chat.id
-    app = update.app
+session = None
 
-    print("[caller] Started caller task")
-    while True:
-        current_number = numbers[i % len(numbers)]
-        print(f"[caller] Calling number: {current_number}")
-        response = await call_api(current_number)
-        try:
-            await app.bot.send_message(chat_id, f"Called {current_number}:\nResponse: {response}")
-            print(f"[caller] Sent message for {current_number}")
-        except Exception as e:
-            print(f"[caller] Error sending message: {e}")
-        i += 1
-        await asyncio.sleep(5)
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global calling_task, session
-    if calling_task and not calling_task.done():
-        await update.message.reply_text("Already started calling.")
-        return
-
-    if session is None:
+async def start_session():
+    global session
+    if session is None or session.closed:
         session = aiohttp.ClientSession()
 
-    await update.message.reply_text("Starting to call API alternately on the numbers...")
-    print("[start] Starting caller task")
+async def close_session():
+    global session
+    if session and not session.closed:
+        await session.close()
 
-    calling_task = asyncio.create_task(caller(update, numbers))
+async def call_api_async(url):
+    global session
+    if session is None or session.closed:
+        await start_session()
 
-async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global calling_task, session
-    if not calling_task or calling_task.done():
-        await update.message.reply_text("Already stopped.")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/114.0.0.0 Safari/537.36"
+    }
+    try:
+        async with session.get(url, timeout=10, headers=headers) as resp:
+            text = await resp.text()
+            try:
+                data = await resp.json()
+            except Exception as e:
+                return {"status": False, "message": f"Invalid JSON response: {e}", "raw": text}
+            return data
+    except Exception as e:
+        return {"status": False, "message": f"Request failed: {e}"}
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = []
+    row = []
+    for ch in channels:
+        row.append(InlineKeyboardButton(ch["name"], url=ch["link"]))
+    keyboard.append(row)
+    keyboard.append([InlineKeyboardButton("I have joined", callback_data="joined")])
+
+    await update.message.reply_text(
+        "Welcome! Please join the channels below and then press 'I have joined':",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def check_membership(user_id, channel_id, context):
+    if not channel_id:
+        return True
+    try:
+        member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user_id)
+        if member.status in ["member", "administrator", "creator"]:
+            return True
+    except:
+        pass
+    return False
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    if query.data == "joined":
+        for ch in channels:
+            channel_id = ch.get("id")
+            joined = await check_membership(user_id, channel_id, context)
+            if channel_id and not joined:
+                await query.edit_message_text(f"Please join the channel: {ch['name']} first.")
+                return
+        keyboard = [
+            [InlineKeyboardButton("Claim Your MB", callback_data="claim_menu")]
+        ]
+        await query.edit_message_text("You have joined all required channels. Please choose an option:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif query.data == "login":
+        user_states[user_id] = {"stage": "awaiting_phone_for_login"}
+        await query.edit_message_text("Please send your phone number to receive OTP (e.g., 03012345678):")
+
+    elif query.data == "claim_menu":
+        user_states[user_id] = {"stage": "awaiting_claim_choice"}
+        keyboard = [
+            [InlineKeyboardButton("Claim 5 GB", callback_data="claim_5gb")],
+            [InlineKeyboardButton("Claim 100 GB", callback_data="claim_100gb")]
+        ]
+        await query.edit_message_text("Choose your claim option:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+    elif query.data in ["claim_5gb", "claim_100gb"]:
+        claim_type = "5gb" if query.data == "claim_5gb" else "100gb"
+        user_states[user_id] = {"stage": "awaiting_phone_for_claim", "claim_type": claim_type}
+        await query.edit_message_text("Please send the phone number on which you want to activate your claim:")
+
+async def fetch_json(url):
+    global session
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/114.0.0.0 Safari/537.36"
+    }
+    try:
+        async with session.get(url, timeout=10, headers=headers) as resp:  # ssl=False ہٹا دیا
+            text = await resp.text()
+            try:
+                data = await resp.json()
+            except Exception as e:
+                return {"status": False, "message": f"Response not JSON: {e}", "raw": text}
+            return data
+    except Exception as e:
+        return {"status": False, "message": f"Request failed: {e}"}
+
+async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message:
         return
 
-    calling_task.cancel()
-    try:
-        await calling_task
-    except asyncio.CancelledError:
-        print("[stop] Caller task cancelled")
-        pass
+    user_id = update.message.from_user.id
+    text = update.message.text
+    state = user_states.get(user_id, {})
 
-    if session:
-        await session.close()
-        session = None
-        print("[stop] HTTP session closed")
+    if state.get("stage") == "awaiting_phone_for_login":
+        phone = text.strip()
+        url = f"https://data-api.impossible-world.xyz/api/login?msisdn={phone}"
+        data = await fetch_json(url)
+        # Send full debug info to user
+        reply_text = f"API Response:\nStatus: {data.get('status')}\nMessage: {data.get('message')}"
+        if 'raw' in data:
+            reply_text += f"\nRaw Response (first 200 chars):\n{data['raw'][:200]}"
+        await update.message.reply_text(reply_text)
 
-    await update.message.reply_text("Stopped calling the API.")
+        if data.get("status") == True:
+            user_states[user_id] = {"stage": "awaiting_otp", "phone": phone}
+            await update.message.reply_text("OTP successfully sent! Please enter your 4-digit OTP:")
+        else:
+            await update.message.reply_text("Failed to send OTP. Please try again.")
+
+    elif state.get("stage") == "awaiting_otp":
+        otp = text.strip()
+        phone = state.get("phone")
+        url = f"https://data-api.impossible-world.xyz/api/login?msisdn={phone}&otp={otp}"
+        data = await fetch_json(url)
+        reply_text = f"API Response:\nStatus: {data.get('status')}\nMessage: {data.get('message')}"
+        if 'raw' in data:
+            reply_text += f"\nRaw Response (first 200 chars):\n{data['raw'][:200]}"
+        await update.message.reply_text(reply_text)
+
+        if data.get("status") == True:
+            user_states[user_id] = {"stage": "logged_in", "phone": phone}
+            keyboard = [
+                [InlineKeyboardButton("Claim Your MB", callback_data="claim_menu")]
+            ]
+            await update.message.reply_text("OTP verified successfully! You can now claim your MB.", reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await update.message.reply_text("Invalid OTP. Please try again.")
+
+    elif state.get("stage") == "awaiting_phone_for_claim":
+        phone = text.strip()
+        claim_type = state.get("claim_type")
+
+        if claim_type == "5gb":
+            url = f"https://data-api.impossible-world.xyz/api/active?msisdn={phone}"
+        else:
+            url = f"https://data-api.impossible-world.xyz/api/activate?msisdn={phone}"
+
+        tasks = [fetch_json(url) for _ in range(5)]
+        responses = await asyncio.gather(*tasks, return_exceptions=True)
+
+        reply_texts = []
+        for idx, resp in enumerate(responses, 1):
+            if isinstance(resp, dict):
+                status = resp.get('status')
+                message = resp.get('message')
+                raw = resp.get('raw', '')[:200]
+                reply_texts.append(f"Response {idx}:\nStatus: {status}\nMessage: {message}\nRaw Response (first 200 chars):\n{raw}")
+            else:
+                reply_texts.append(f"Response {idx}:\nRequest failed: {resp}")
+
+        full_reply = "\n\n".join(reply_texts)
+        await update.message.reply_text(full_reply)
+
+        user_states[user_id] = {"stage": "logged_in", "phone": phone}
+
+    else:
+        await update.message.reply_text("Please use /start to begin.")
+
+async def on_startup(app):
+    global session
+    session = aiohttp.ClientSession()
+
+async def on_shutdown(app):
+    global session
+    await session.close()
 
 if __name__ == "__main__":
-    TOKEN = "7902248899:AAHElm3aHJeP3IZiy2SN3jLAgV7ZwRXnvdo"
-    app = ApplicationBuilder().token(TOKEN).build()
+    app = ApplicationBuilder().token("8276543608:AAEbE-8J3ueGMAGQtWeedcMry3iDjAivG0U").post_init(on_startup).post_shutdown(on_shutdown).build()
+
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("stop", stop))
+    app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), message_handler))
 
     print("Bot is running...")
     app.run_polling()
