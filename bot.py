@@ -140,9 +140,6 @@ user_cancel_flags = {}
 requests_enabled = True  # فرض کریں یہ کہیں globally defined ہے
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-# global user cancel flags dictionary
-
-async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global request_count, requests_enabled
     if not update.message:
         return
