@@ -134,9 +134,13 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Global activated numbers set
 activated_numbers = set()
+user_cancel_flags = {}
 
 # global flag for enabling/disabling requests
 requests_enabled = True  # فرض کریں یہ کہیں globally defined ہے
+
+async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# global user cancel flags dictionary
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global request_count, requests_enabled
@@ -196,6 +200,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         success_count = 0  # کامیاب ریکویسٹز کا شمار
 
         for i in range(1, request_count + 1):
+            # چیک کرو کیا یوزر نے ریکویسٹ روکی ہے؟
+            if user_cancel_flags.get(user_id, False):
+                await safe_reply(update.message, "🛑 آپ کی ریکویسٹز روک دی گئی ہیں۔")
+                user_cancel_flags[user_id] = False  # فلگ ری سیٹ کرو
+                break
+
             resp = await fetch_json(url)
 
             if isinstance(resp, dict):
@@ -229,9 +239,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    if user_id in user_states:
-        user_states.pop(user_id)
-    await update.message.reply_text("🚫 آپ کا سیشن روک دیا گیا ہے۔ اگر آپ دوبارہ شروع کرنا چاہتے ہیں تو /start لکھیں۔")
+    user_cancel_flags[user_id] = True  # cancel the ongoing requests for this user
+    user_states.pop(user_id, None)      # optional: clear user state
+    await update.message.reply_text("🚫 آپ کا سیشن فوراً روک دیا گیا ہے۔ اگر دوبارہ شروع کرنا چاہیں تو /start لکھیں۔")
 
 # Global flag
 requests_enabled = True
