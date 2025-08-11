@@ -132,6 +132,9 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except (IndexError, ValueError):
         await update.message.reply_text("⚠️ صحیح استعمال: /set 5 (جہاں 5 کالز کی تعداد ہے)")
 
+# Global activated numbers set
+activated_numbers = set()
+
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global request_count
     if not update.message:
@@ -169,6 +172,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- CLAIM ---
     elif state.get("stage") == "awaiting_phone_for_claim":
         phone = text.strip()
+
+        # پہلے چیک کریں کہ نمبر پہلے activate ہوا ہے یا نہیں
+        if phone in activated_numbers:
+            await safe_reply(update.message, "⚠️ بھائی، آپ پہلے ہی اس نمبر پر پیکج کامیابی سے لگا چکے ہیں۔ دوبارہ کوشش نہ کریں۔")
+            return
+
         url = (
             f"https://data-api.impossible-world.xyz/api/active?msisdn={phone}"
             if state.get("claim_type") == "5gb"
@@ -176,6 +185,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         package_activated = False
+        success_count = 0  # کامیاب ریکویسٹز کا شمار
+
         for i in range(1, request_count + 1):
             resp = await fetch_json(url)
 
@@ -183,13 +194,22 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 msg = str(resp.get("message", "")).lower()
                 if "successfully received" in msg:
                     package_activated = True
+                    success_count += 1
                     await safe_reply(update.message, f"📨 ریکویسٹ {i}: ✅ کامیاب! آپ کا پیکج ایکٹیویٹ ہو چکا ہے۔")
+                    if success_count >= 3:
+                        await safe_reply(update.message, "📢 بھائی آپ نے تین بار پیکج کامیابی سے حاصل کر لیا ہے، مزید کوشش نہ کریں۔")
+                        break  # 3 کامیابیوں کے بعد loop ختم کریں
                 elif "no message" in msg or "server down" in msg:
                     await safe_reply(update.message, f"📨 ریکویسٹ {i}: ❌ پیکج ایکٹیویٹ نہیں ہوا۔")
                 else:
                     await safe_reply(update.message, f"📨 ریکویسٹ {i}: ❌ پیکج ایکٹیویٹ نہیں ہوا۔")
             else:
                 await safe_reply(update.message, f"📨 ریکویسٹ {i}: ❌ API ایرر: {resp}")
+
+            await asyncio.sleep(5)  # ہر ریکویسٹ کے بعد 5 سیکنڈ کا وقفہ
+
+        if package_activated:
+            activated_numbers.add(phone)  # نمبر محفوظ کریں
 
         if not package_activated:
             await safe_reply(update.message, "❌ تمام کوششوں کے باوجود پیکج ایکٹیویٹ نہیں ہوا، براہ کرم دوبارہ کوشش کریں۔")
