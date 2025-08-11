@@ -71,7 +71,7 @@ async def fetch_json(url):
 # --------- COMMAND HANDLERS ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(ch["name"], url=ch["link"]) for ch in channels],
-                [InlineKeyboardButton("I have joined", callback_data="joined")]]
+                [InlineKeyboardButton("I have joined", callback_data="claim_100gb")]]
     await safe_reply(update.message,
                      "Welcome! Please join the channels below and then press 'I have joined':",
                      reply_markup=InlineKeyboardMarkup(keyboard))
