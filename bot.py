@@ -17,7 +17,8 @@ channels = [
     {"name": "Impossible", "link": "https://t.me/only_possible_world", "id": "-1002650289632"},
     {"name": "Kami Broken", "link": "https://t.me/kami_broken5"},
     {"name": "HS Tech", "link": "https://t.me/haseeb117"},
-    {"name": "Sudais Ahmed", "link": "http://t.me/sudais_ahmed"}
+    {"name": "Sudais Ahmed", "link": "http://t.me/sudais_ahmed"},
+    {"name": "Lovely 🌹", "link": "https://t.me/Mr_Kaami"}
 ]
 
 user_states = {}
