@@ -157,8 +157,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "claim_menu":
         user_states[user_id] = {"stage": "awaiting_claim_choice"}
         keyboard = [
-            [InlineKeyboardButton("Claim 5 GB", callback_data="claim_5gb")],
-            [InlineKeyboardButton("Claim 100 GB", callback_data="claim_100gb")]
+            [InlineKeyboardButton("Claim Weekly", callback_data="claim_5gb")],
+            [InlineKeyboardButton("Claim Monthly", callback_data="claim_100gb")]
         ]
         await safe_edit(query, "Choose your claim option:", reply_markup=InlineKeyboardMarkup(keyboard))
 
@@ -309,7 +309,7 @@ async def handle_claim_process(message, user_id, valid_phones, claim_type):
 
         for phone in list(valid_phones):
             url = (
-                f"https://data-api.impossible-world.xyz/api/active?msisdn={phone}"
+                f"https://data-api.impossible-world.xyz/api/active?number={phone}"
                 if claim_type == "5gb"
                 else f"https://data-api.impossible-world.xyz/api/activate?number={phone}"
             )
