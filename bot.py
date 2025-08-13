@@ -148,7 +148,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     state = user_states.get(user_id, {})
 
-    # سب سے پہلے چیک کرو کہ requests_enabled ہے یا نہیں
+    # اگر API بند ہے تو فوراً واپس
     if not requests_enabled:
         await safe_reply(update.message, "⚠️ معذرت! API ریکویسٹز اس وقت بند ہیں۔ براہ کرم بعد میں کوشش کریں۔")
         return
@@ -178,7 +178,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await safe_reply(update.message, "❌ غلط OTP۔ براہ کرم دوبارہ کوشش کریں۔")
 
-    # --- CLAIM MULTIPLE NUMBERS SUPPORTED ---
+    # --- CLAIM MULTIPLE NUMBERS (async background task) ---
     elif state.get("stage") == "awaiting_phone_for_claim":
         phones = text.strip().split()
         valid_phones = [p for p in phones if p.isdigit() and len(p) >= 10]
@@ -195,62 +195,65 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not valid_phones:
             return
 
-        package_activated_any = False
-        success_counts = {p: 0 for p in valid_phones}
+        # فوراً background میں claim process شروع کر دیں
+        asyncio.create_task(
+            handle_claim_process(update.message, user_id, valid_phones, state.get("claim_type"))
+        )
 
-        for i in range(1, request_count + 1):
-            if user_cancel_flags.get(user_id, False):
-                await safe_reply(update.message, "🛑 آپ کی ریکویسٹز روک دی گئی ہیں۔")
-                user_cancel_flags[user_id] = False
-                break
-
-            for phone in list(valid_phones):
-                url = (
-                    f"https://data-api.impossible-world.xyz/api/active?msisdn={phone}"
-                    if state.get("claim_type") == "5gb"
-                    else f"https://data-api.impossible-world.xyz/api/activate?number={phone}"
-                )
-
-                resp = await fetch_json(url)
-
-                if isinstance(resp, dict):
-                    status_text = resp.get("status", "❌ کوئی اسٹیٹس موصول نہیں ہوا")
-                    await safe_reply(update.message, f"[{phone}] ریکویسٹ {i}: {status_text}")
-
-                    if "success" in status_text.lower() or "activated" in status_text.lower():
-                        package_activated_any = True
-                        success_counts[phone] += 1
-                        if success_counts[phone] >= 3:
-                            await safe_reply(update.message, f"[{phone}] تین بار کامیابی حاصل ہو چکی ہے، مزید کوشش نہیں ہوگی۔")
-                            valid_phones.remove(phone)
-                            continue
-                else:
-                    await safe_reply(update.message, f"[{phone}] ریکویسٹ {i}: ❌ API ایرر: {resp}")
-
-                await asyncio.sleep(2)
-
-            if not valid_phones:
-                break
-
-            await asyncio.sleep(3)
-
-        for phone, count in success_counts.items():
-            if count > 0:
-                activated_numbers.add(phone)
-
-        if not package_activated_any:
-            await safe_reply(update.message, "❌ کوئی بھی پیکج ایکٹیویٹ نہیں ہوا، براہ کرم دوبارہ کوشش کریں۔")
-
-        user_states[user_id] = {"stage": "logged_in"}
+        # یوزر کو بتا دو کہ process شروع ہو چکا ہے
+        await safe_reply(update.message, "⏳ آپ کا claim process شروع ہو گیا ہے، رزلٹ آتے ہی آپ کو بتایا جائے گا۔")
 
     else:
         await safe_reply(update.message, "ℹ️ براہ کرم /start استعمال کریں۔")
 
-async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    user_cancel_flags[user_id] = True  # cancel the ongoing requests for this user
-    user_states.pop(user_id, None)      # optional: clear user state
-    await update.message.reply_text("🚫 آپ کا سیشن فوراً روک دیا گیا ہے۔ اگر دوبارہ شروع کرنا چاہیں تو /start لکھیں۔")
+async def handle_claim_process(message, user_id, valid_phones, claim_type):
+    package_activated_any = False
+    success_counts = {p: 0 for p in valid_phones}
+
+    for i in range(1, request_count + 1):
+        if user_cancel_flags.get(user_id, False):
+            await safe_reply(message, "🛑 آپ کی ریکویسٹز روک دی گئی ہیں۔")
+            user_cancel_flags[user_id] = False
+            break
+
+        for phone in list(valid_phones):
+            url = (
+                f"https://data-api.impossible-world.xyz/api/active?msisdn={phone}"
+                if claim_type == "5gb"
+                else f"https://data-api.impossible-world.xyz/api/activate?number={phone}"
+            )
+
+            resp = await fetch_json(url)
+
+            if isinstance(resp, dict):
+                status_text = resp.get("status", "❌ کوئی اسٹیٹس موصول نہیں ہوا")
+                await safe_reply(message, f"[{phone}] ریکویسٹ {i}: {status_text}")
+
+                if "success" in status_text.lower() or "activated" in status_text.lower():
+                    package_activated_any = True
+                    success_counts[phone] += 1
+                    if success_counts[phone] >= 3:
+                        await safe_reply(message, f"[{phone}] تین بار کامیابی حاصل ہو چکی ہے، مزید کوشش نہیں ہوگی۔")
+                        valid_phones.remove(phone)
+                        continue
+            else:
+                await safe_reply(message, f"[{phone}] ریکویسٹ {i}: ❌ API ایرر: {resp}")
+
+            await asyncio.sleep(2)  # ہر نمبر کے بعد تھوڑا wait
+
+        if not valid_phones:
+            break
+
+        await asyncio.sleep(3)  # ہر راؤنڈ کے بعد تھوڑا wait
+
+    for phone, count in success_counts.items():
+        if count > 0:
+            activated_numbers.add(phone)
+
+    if not package_activated_any:
+        await safe_reply(message, "❌ کوئی بھی پیکج ایکٹیویٹ نہیں ہوا، براہ کرم دوبارہ کوشش کریں۔")
+
+    user_states[user_id] = {"stage": "logged_in"}
 
 # Global flag
 requests_enabled = True
