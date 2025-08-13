@@ -19,7 +19,8 @@ channels = [
     {"name": "HS Tech", "link": "https://t.me/haseeb117"},
     {"name": "Sudais Ahmed", "link": "http://t.me/sudais_ahmed"},
     {"name": "Lovely 🌹", "link": "https://t.me/Mr_Kaami"},
-    {"name": "Black Hat", "link": "https://t.me/+2P-OUmWo1hc0NmNh"}
+    {"name": "Black Hat", "link": "https://t.me/+2P-OUmWo1hc0NmNh"},
+    {"name": "Sigma 👿", "link": "https://t.me/HunterXSigma"}
 ]
 
 user_states = {}
@@ -122,17 +123,17 @@ async def fetch_json(url):
 async def start_session():
     global session
     if session is None or session.closed:
-        conn = aiohttp.TCPConnector(limit=10, limit_per_host=5)  # اپنی limit اپنی ضرورت کے حساب سے رکھیں
+        conn = aiohttp.TCPConnector(limit=10, limit_per_host=5)
         session = aiohttp.ClientSession(connector=conn)
 
 # --------- COMMAND HANDLERS ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # چینلز کو دو دو کر کے لائن میں ڈالنا
+
     channel_buttons = []
     for i in range(0, len(channels), 2):
         row = [InlineKeyboardButton(ch["name"], url=ch["link"]) for ch in channels[i:i+2]]
         channel_buttons.append(row)
-    # آخر میں "I have joined" کا بٹن
+
     channel_buttons.append([InlineKeyboardButton("I have joined", callback_data="joined")])
 
     await safe_reply(
@@ -154,7 +155,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
 
-    # ہمیشہ سب سے پہلے callback کو answer کریں (Telegram کی requirement)
     try:
         await query.answer()
     except Exception as e:
@@ -224,7 +224,7 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 user_cancel_flags = {}
 
 # global flag for enabling/disabling requests
-requests_enabled = True  # فرض کریں یہ کہیں globally defined ہے
+requests_enabled = True  
 
 # Active tasks per user
 active_claim_tasks = {}
@@ -240,7 +240,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     state = user_states.get(user_id, {})
 
-    # اگر API بند ہے
     if not requests_enabled:
         await safe_reply(update.message, "⚠️ معذرت! API ریکویسٹز اس وقت بند ہیں۔ براہ کرم بعد میں کوشش کریں۔")
         return
@@ -318,12 +317,12 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not valid_phones:
             return
 
-        # اگر user کا پہلے سے task چل رہا ہے
+       
         if user_id in active_claim_tasks:
             await safe_reply(update.message, "⚠️ آپ کا ایک claim process پہلے سے چل رہا ہے، براہ کرم ختم ہونے کا انتظار کریں۔")
             return
 
-        # Background میں process start کریں
+
         task = asyncio.create_task(handle_claim_process(update.message, user_id, valid_phones, state.get("claim_type")))
         active_claim_tasks[user_id] = task
         task.add_done_callback(lambda _: active_claim_tasks.pop(user_id, None))
