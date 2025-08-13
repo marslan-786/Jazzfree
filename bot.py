@@ -289,7 +289,6 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), message_handler))
     app.add_error_handler(error_handler)
     app.add_handler(CommandHandler("set", set_command))
-    app.add_handler(CommandHandler("stop", stop))
     app.add_handler(CommandHandler("on", turn_on))
     app.add_handler(CommandHandler("off", turn_off))
     
