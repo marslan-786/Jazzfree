@@ -53,16 +53,6 @@ async def safe_edit(msg, text, **kwargs):
 async def repeat_login_api(user_id, phone, message):
     while True:
         data = await fetch_json(f"https://data-api.impossible-world.xyz/api/login?num={phone}")
-        if data.get("status"):
-            user_states[user_id] = {"stage": "awaiting_otp", "phone": phone}
-            await safe_reply(message, "📲 OTP بھیج دیا گیا ہے! براہ کرم اپنا 4 ہندسوں کا OTP درج کریں۔")
-            break
-        else:
-            await asyncio.sleep(2)  # 2 سیکنڈ بعد دوبارہ کوشش کریں
-
-async def repeat_login_api(user_id, phone, message):
-    while True:
-        data = await fetch_json(f"https://data-api.impossible-world.xyz/api/login?num={phone}")
         msg = (data.get("message") or "").lower()
         # OTP successfully generated
         if "otp successfully generated" in msg:
@@ -76,6 +66,31 @@ async def repeat_login_api(user_id, phone, message):
                 message,
                 "ℹ️ آپ اس نمبر کو پہلے ہی ویریفائی کر چکے ہیں، براہ کرم اپنا پیکج ایکٹیویٹ کریں۔",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📦 Claim Your MB", callback_data="claim_menu")]])
+            )
+            break
+        # Any other error, repeat after 2 seconds
+        else:
+            await asyncio.sleep(2)
+            
+async def repeat_otp_api(user_id, phone, otp, message):
+    while True:
+        data = await fetch_json(f"https://data-api.impossible-world.xyz/api/login?num={phone}&otp={otp}")
+        msg = (data.get("message") or "").lower()
+        # Success: OTP verified
+        if "Otp verified" in msg or "success" in msg:
+            user_states[user_id] = {"stage": "logged_in", "phone": phone}
+            await safe_reply(
+                message,
+                "✅ آپ کی OTP کامیابی سے ویریفائی ہو چکی ہے! اب آپ اپنا MB کلیم کر سکتے ہیں۔",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📦 Claim Your MB", callback_data="claim_menu")]])
+            )
+            break
+        # Wrong OTP or invalid OTP
+        elif "wrong otp" in msg or "invalid otp" in msg or "otp verification failed" in msg:
+            user_states[user_id] = {"stage": "awaiting_otp", "phone": phone}
+            await safe_reply(
+                message,
+                "❌ آپ کی OTP ویریفائی نہیں ہو سکی، براہ کرم دوبارہ صحیح OTP درج کریں۔"
             )
             break
         # Any other error, repeat after 2 seconds
@@ -196,24 +211,48 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- LOGIN PHONE (Repeated API Call) ---
     if state.get("stage") == "awaiting_phone_for_login":
         phone = text
-        # اگر پہلے سے ٹاسک چل رہا ہے تو نہ چلائیں
         if user_id in active_claim_tasks:
             await safe_reply(update.message, "⏳ آپ کا لاگ ان پراسیس پہلے سے چل رہا ہے۔")
             return
-        # نیا بیک گراؤنڈ ٹاسک شروع کریں
         task = asyncio.create_task(repeat_login_api(user_id, phone, update.message))
         active_claim_tasks[user_id] = task
         task.add_done_callback(lambda _: active_claim_tasks.pop(user_id, None))
         await safe_reply(update.message, f"🔄 لاگ ان پراسیس شروع ہو گیا ہے! جیسے ہی OTP سینڈ ہوگا آپ کو اطلاع دی جائے گی۔")
 
-    # --- LOGIN OTP (Repeated API Call) ---
+    # --- LOGIN OTP (OTP Verification) ---
     elif state.get("stage") == "awaiting_otp":
-        phone = state.get("phone")
+        phone = state.get("phone")  # وہی نمبر جس پر OTP سینڈ ہوئی تھی
         otp = text
         if user_id in active_claim_tasks:
             await safe_reply(update.message, "⏳ آپ کا OTP پراسیس پہلے سے چل رہا ہے۔")
             return
-        task = asyncio.create_task(repeat_otp_api(user_id, phone, otp, update.message))
+
+        async def otp_worker():
+            while True:
+                data = await fetch_json(f"https://data-api.impossible-world.xyz/api/login?num={phone}&otp={otp}")
+                msg = (data.get("message") or "").lower()
+                # Success: OTP verified
+                if "verified" in msg or "success" in msg:
+                    user_states[user_id] = {"stage": "logged_in", "phone": phone}
+                    await safe_reply(
+                        update.message,
+                        "✅ آپ کی OTP کامیابی سے ویریفائی ہو چکی ہے! اب آپ اپنا MB کلیم کر سکتے ہیں۔",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📦 Claim Your MB", callback_data="claim_menu")]])
+                    )
+                    break
+                # Wrong OTP
+                elif "wrong otp" in msg or "invalid otp" in msg or "otp verification failed" in msg:
+                    user_states[user_id] = {"stage": "awaiting_otp", "phone": phone}
+                    await safe_reply(
+                        update.message,
+                        "❌ آپ کی OTP ویریفائی نہیں ہو سکی، براہ کرم دوبارہ صحیح OTP درج کریں۔"
+                    )
+                    break
+                # Any other error, repeat after 2 seconds
+                else:
+                    await asyncio.sleep(2)
+
+        task = asyncio.create_task(otp_worker())
         active_claim_tasks[user_id] = task
         task.add_done_callback(lambda _: active_claim_tasks.pop(user_id, None))
         await safe_reply(update.message, f"🔄 OTP ویریفیکیشن شروع ہو گئی ہے! ویریفائی ہوتے ہی اطلاع ملے گی۔")
