@@ -115,6 +115,12 @@ async def fetch_json(url):
                 return {"status": False, "message": f"Response not JSON: {e}", "raw": text}
     except Exception as e:
         return {"status": False, "message": f"Request failed: {e}"}
+        
+async def start_session():
+    global session
+    if session is None or session.closed:
+        conn = aiohttp.TCPConnector(limit=10, limit_per_host=5)  # اپنی limit اپنی ضرورت کے حساب سے رکھیں
+        session = aiohttp.ClientSession(connector=conn)
 
 # --------- COMMAND HANDLERS ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -370,6 +376,20 @@ async def turn_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def error_handler(update, context):
     logger.error(f"Update {update} caused error {context.error}")
 
+async def del_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global blocked_numbers
+    try:
+        number = context.args[0]
+    except (IndexError, ValueError):
+        await update.message.reply_text("⚠️ صحیح استعمال: /del 03001234567")
+        return
+
+    if number in blocked_numbers:
+        blocked_numbers.remove(number)
+        await update.message.reply_text(f"✅ نمبر {number} بلاک لسٹ سے نکال دیا گیا ہے۔")
+    else:
+        await update.message.reply_text(f"ℹ️ نمبر {number} بلاک لسٹ میں نہیں تھا۔")
+        
 # --------- STARTUP / SHUTDOWN ----------
 async def on_startup(app):
     await start_session()
@@ -389,6 +409,9 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("set", set_command))
     app.add_handler(CommandHandler("on", turn_on))
     app.add_handler(CommandHandler("off", turn_off))
+    app.add_handler(CommandHandler("login", login))
+    app.add_handler(CommandHandler("claim", claim_100gb))
+    app.add_handler(CommandHandler("del", del_command))
     
     print("Bot is running...")
     app.run_polling()
