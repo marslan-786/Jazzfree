@@ -134,41 +134,43 @@ async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ صحیح استعمال: /set 5 (جہاں 5 کالز کی تعداد ہے)")
 
 # Global activated numbers set
-activated_numbers = set()
 user_cancel_flags = {}
 
 # global flag for enabling/disabling requests
 requests_enabled = True  # فرض کریں یہ کہیں globally defined ہے
 
+# Active tasks per user
+active_claim_tasks = {}
+blocked_numbers = set()
+activated_numbers = set()
+
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global request_count, requests_enabled, blocked_numbers
+    global request_count, requests_enabled, blocked_numbers, activated_numbers
     if not update.message:
         return
 
     user_id = update.message.from_user.id
-    text = update.message.text
+    text = update.message.text.strip()
     state = user_states.get(user_id, {})
 
-    # اگر API بند ہے تو فوراً واپس
+    # اگر API بند ہے
     if not requests_enabled:
         await safe_reply(update.message, "⚠️ معذرت! API ریکویسٹز اس وقت بند ہیں۔ براہ کرم بعد میں کوشش کریں۔")
         return
 
     # --- LOGIN PHONE ---
     if state.get("stage") == "awaiting_phone_for_login":
-        phone = text.strip()
-        data = await fetch_json(f"https://data-api.impossible-world.xyz/api/login?number={phone}")
+        data = await fetch_json(f"https://data-api.impossible-world.xyz/api/login?number={text}")
         if data.get("status"):
-            user_states[user_id] = {"stage": "awaiting_otp", "phone": phone}
+            user_states[user_id] = {"stage": "awaiting_otp", "phone": text}
             await safe_reply(update.message, "📲 OTP بھیج دیا گیا ہے! براہ کرم اپنا 4 ہندسوں کا OTP درج کریں۔")
         else:
             await safe_reply(update.message, "❌ OTP بھیجنے میں ناکامی۔ براہ کرم دوبارہ کوشش کریں۔")
 
     # --- LOGIN OTP ---
     elif state.get("stage") == "awaiting_otp":
-        otp = text.strip()
         phone = state.get("phone")
-        data = await fetch_json(f"https://data-api.impossible-world.xyz/api/login?msisdn={phone}&otp={otp}")
+        data = await fetch_json(f"https://data-api.impossible-world.xyz/api/login?msisdn={phone}&otp={text}")
         if data.get("status"):
             user_states[user_id] = {"stage": "logged_in", "phone": phone}
             await safe_reply(
@@ -179,22 +181,22 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await safe_reply(update.message, "❌ غلط OTP۔ براہ کرم دوبارہ کوشش کریں۔")
 
-    # --- CLAIM MULTIPLE NUMBERS (async background task) ---
+    # --- CLAIM MULTIPLE NUMBERS ---
     elif state.get("stage") == "awaiting_phone_for_claim":
-        phones = text.strip().split()
+        phones = text.split()
         valid_phones = [p for p in phones if p.isdigit() and len(p) >= 10]
 
         if not valid_phones:
             await safe_reply(update.message, "⚠️ براہ کرم درست نمبر درج کریں (مثال: 03001234567 03007654321)")
             return
 
-        # پہلے سے blocked نمبر چیک
+        # Blocked check
         already_blocked = [p for p in valid_phones if p in blocked_numbers]
         if already_blocked:
             await safe_reply(update.message, f"⚠️ یہ نمبر پہلے ہی استعمال ہو چکے ہیں: {', '.join(already_blocked)}")
             valid_phones = [p for p in valid_phones if p not in blocked_numbers]
 
-        # پہلے سے activated نمبر چیک
+        # Activated check
         already_activated = [p for p in valid_phones if p in activated_numbers]
         if already_activated:
             await safe_reply(update.message, f"⚠️ یہ نمبر پہلے ہی ایکٹیویٹ ہو چکے ہیں: {', '.join(already_activated)}")
@@ -203,16 +205,21 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not valid_phones:
             return
 
-        asyncio.create_task(
-            handle_claim_process(update.message, user_id, valid_phones, state.get("claim_type"))
-        )
+        # اگر user کا پہلے سے task چل رہا ہے
+        if user_id in active_claim_tasks:
+            await safe_reply(update.message, "⚠️ آپ کا ایک claim process پہلے سے چل رہا ہے، براہ کرم ختم ہونے کا انتظار کریں۔")
+            return
+
+        # Background میں process start کریں
+        task = asyncio.create_task(handle_claim_process(update.message, user_id, valid_phones, state.get("claim_type")))
+        active_claim_tasks[user_id] = task
+        task.add_done_callback(lambda _: active_claim_tasks.pop(user_id, None))
 
         await safe_reply(update.message, "⏳ آپ کا claim process شروع ہو گیا ہے، رزلٹ آتے ہی آپ کو بتایا جائے گا۔")
 
     else:
         await safe_reply(update.message, "ℹ️ براہ کرم /start استعمال کریں۔")
-        
-blocked_numbers = set()
+
 
 async def handle_claim_process(message, user_id, valid_phones, claim_type):
     package_activated_any = False
@@ -237,34 +244,33 @@ async def handle_claim_process(message, user_id, valid_phones, claim_type):
                 status_text = resp.get("status", "❌ کوئی اسٹیٹس موصول نہیں ہوا")
                 await safe_reply(message, f"[{phone}] ریکویسٹ {i}: {status_text}")
 
-                # ✅ اگر "Your request has been successfully received" ملا تو فوراً روک دیں
+                # Success submit
                 if "your request has been successfully received" in status_text.lower():
                     blocked_numbers.add(phone)
-                    await safe_reply(message, f"[{phone}] ✅ یہ نمبر کامیابی سے submit ہو گیا ہے، مزید کوشش نہیں ہوگی۔")
+                    activated_numbers.add(phone)
+                    await safe_reply(message, f"[{phone}] ✅ کامیابی سے submit ہو گیا، نمبر block کر دیا گیا۔")
                     valid_phones.remove(phone)
                     continue
 
-                # عام success یا activated میسج
+                # Activated success
                 if "success" in status_text.lower() or "activated" in status_text.lower():
                     package_activated_any = True
                     success_counts[phone] += 1
                     if success_counts[phone] >= 3:
-                        await safe_reply(message, f"[{phone}] تین بار کامیابی حاصل ہو چکی ہے، مزید کوشش نہیں ہوگی۔")
+                        blocked_numbers.add(phone)
+                        activated_numbers.add(phone)
+                        await safe_reply(message, f"[{phone}] ✅ 3 بار کامیابی، نمبر block کر دیا گیا۔")
                         valid_phones.remove(phone)
                         continue
             else:
                 await safe_reply(message, f"[{phone}] ریکویسٹ {i}: ❌ API ایرر: {resp}")
 
-            await asyncio.sleep(2)  # ہر نمبر کے بعد تھوڑا wait
+            await asyncio.sleep(0.5)  # کم wait تاکہ تیزی سے چلے
 
         if not valid_phones:
             break
 
-        await asyncio.sleep(3)  # ہر راؤنڈ کے بعد تھوڑا wait
-
-    for phone, count in success_counts.items():
-        if count > 0:
-            activated_numbers.add(phone)
+        await asyncio.sleep(1)  # ہر round کے بعد تھوڑا wait
 
     if not package_activated_any:
         await safe_reply(message, "❌ کوئی بھی پیکج ایکٹیویٹ نہیں ہوا، براہ کرم دوبارہ کوشش کریں۔")
