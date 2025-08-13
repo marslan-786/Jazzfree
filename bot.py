@@ -397,6 +397,47 @@ async def on_startup(app):
 async def on_shutdown(app):
     await close_session()
 
+async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("⚠️ صحیح استعمال: /login 03001234567")
+        return
+    phone = context.args[0]
+    user_id = update.message.from_user.id
+    state = user_states.get(user_id, {})
+    if user_id in active_claim_tasks:
+        await update.message.reply_text("⏳ آپ کا لاگ ان پراسیس پہلے سے چل رہا ہے۔")
+        return
+    task = asyncio.create_task(repeat_login_api(user_id, phone, update.message))
+    active_claim_tasks[user_id] = task
+    task.add_done_callback(lambda _: active_claim_tasks.pop(user_id, None))
+    await update.message.reply_text(f"🔄 لاگ ان پراسیس شروع ہو گیا ہے! جیسے ہی OTP سینڈ ہوگا آپ کو اطلاع دی جائے گی۔")
+    
+async def claim_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global blocked_numbers, activated_numbers
+    if not context.args:
+        await update.message.reply_text("⚠️ صحیح استعمال: /claim 03001234567")
+        return
+    phone = context.args[0]
+    user_id = update.message.from_user.id
+
+    # Blocked check
+    if phone in blocked_numbers:
+        await update.message.reply_text(f"⚠️ یہ نمبر پہلے ہی استعمال ہو چکا ہے: {phone}")
+        return
+    if phone in activated_numbers:
+        await update.message.reply_text(f"⚠️ یہ نمبر پہلے ہی ایکٹیویٹ ہو چکا ہے: {phone}")
+        return
+
+    if user_id in active_claim_tasks:
+        await update.message.reply_text("⚠️ آپ کا ایک claim process پہلے سے چل رہا ہے، براہ کرم ختم ہونے کا انتظار کریں۔")
+        return
+
+    # Claim process for 100GB
+    task = asyncio.create_task(handle_claim_process(update.message, user_id, [phone], "100gb"))
+    active_claim_tasks[user_id] = task
+    task.add_done_callback(lambda _: active_claim_tasks.pop(user_id, None))
+    await update.message.reply_text("⏳ آپ کا 100GB کلیم پراسیس شروع ہو گیا ہے، رزلٹ آتے ہی آپ کو بتایا جائے گا۔")
+
 # --------- MAIN ----------
 if __name__ == "__main__":
     app = ApplicationBuilder().token("8276543608:AAEbE-8J3ueGMAGQtWeedcMry3iDjAivG0U") \
@@ -409,8 +450,8 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("set", set_command))
     app.add_handler(CommandHandler("on", turn_on))
     app.add_handler(CommandHandler("off", turn_off))
-    app.add_handler(CommandHandler("login", login))
-    app.add_handler(CommandHandler("claim", claim_100gb))
+    app.add_handler(CommandHandler("login", login_command))
+    app.add_handler(CommandHandler("claim", claim_command))
     app.add_handler(CommandHandler("del", del_command))
     
     print("Bot is running...")
