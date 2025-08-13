@@ -16,7 +16,8 @@ logger = logging.getLogger(__name__)
 channels = [
     {"name": "Impossible", "link": "https://t.me/only_possible_world", "id": "-1002650289632"},
     {"name": "Kami Broken", "link": "https://t.me/kami_broken5"},
-    {"name": "First Join", "link": "https://t.me/haseeb117"}
+    {"name": "HS Tech", "link": "https://t.me/haseeb117"},
+    {"name": "Sudais Ahmed", "link": "http://t.me/sudais_ahmed"}
 ]
 
 user_states = {}
