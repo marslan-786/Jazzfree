@@ -18,7 +18,8 @@ channels = [
     {"name": "Kami Broken", "link": "https://t.me/kami_broken5"},
     {"name": "HS Tech", "link": "https://t.me/haseeb117"},
     {"name": "Sudais Ahmed", "link": "http://t.me/sudais_ahmed"},
-    {"name": "Lovely 🌹", "link": "https://t.me/Mr_Kaami"}
+    {"name": "Lovely 🌹", "link": "https://t.me/Mr_Kaami"},
+    {"name": "Black Hat", "link": "https://t.me/+2P-OUmWo1hc0NmNh"}
 ]
 
 user_states = {}
