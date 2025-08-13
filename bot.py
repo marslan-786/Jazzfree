@@ -125,11 +125,19 @@ async def start_session():
 
 # --------- COMMAND HANDLERS ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton(ch["name"], url=ch["link"]) for ch in channels],
-                [InlineKeyboardButton("I have joined", callback_data="joined")]]
-    await safe_reply(update.message,
-                     "Welcome! Please join the channels below and then press 'I have joined':",
-                     reply_markup=InlineKeyboardMarkup(keyboard))
+    # چینلز کو دو دو کر کے لائن میں ڈالنا
+    channel_buttons = []
+    for i in range(0, len(channels), 2):
+        row = [InlineKeyboardButton(ch["name"], url=ch["link"]) for ch in channels[i:i+2]]
+        channel_buttons.append(row)
+    # آخر میں "I have joined" کا بٹن
+    channel_buttons.append([InlineKeyboardButton("I have joined", callback_data="joined")])
+
+    await safe_reply(
+        update.message,
+        "Welcome! Please join the channels below and then press 'I have joined':",
+        reply_markup=InlineKeyboardMarkup(channel_buttons)
+    )
 
 async def check_membership(user_id, channel_id, context):
     if not channel_id:
@@ -142,39 +150,59 @@ async def check_membership(user_id, channel_id, context):
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     user_id = query.from_user.id
 
-    if query.data == "joined":
-        for ch in channels:
-            if ch.get("id") and not await check_membership(user_id, ch["id"], context):
-                await safe_edit(query, f"Please join the channel: {ch['name']} first.")
-                return
-        keyboard = [
-            [InlineKeyboardButton("Login", callback_data="login")],
-            [InlineKeyboardButton("Claim Your MB", callback_data="claim_menu")]
+    # ہمیشہ سب سے پہلے callback کو answer کریں (Telegram کی requirement)
+    try:
+        await query.answer()
+    except Exception as e:
+        logger.error(f"Callback answer error: {e}")
+
+    try:
+        if query.data == "joined":
+            for ch in channels:
+                if ch.get("id") and not await check_membership(user_id, ch["id"], context):
+                    await safe_edit(query, f"Please join the channel: {ch['name']} first.")
+                    return
+            keyboard = [
+                [InlineKeyboardButton("Login", callback_data="login")],
+                [InlineKeyboardButton("Claim Your MB", callback_data="claim_menu")]
             ]
-        await safe_edit(query, "You have joined all required channels. Please choose an option:",
-                        reply_markup=InlineKeyboardMarkup(keyboard))
+            await safe_edit(
+                query,
+                "You have joined all required channels. Please choose an option:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
 
-    elif query.data == "login":
-        user_states[user_id] = {"stage": "awaiting_phone_for_login"}
-        await safe_edit(query, "Please send your phone number to receive OTP (e.g., 03012345678):")
+        elif query.data == "login":
+            user_states[user_id] = {"stage": "awaiting_phone_for_login"}
+            await safe_edit(query, "Please send your phone number to receive OTP (e.g., 03012345678):")
 
-    elif query.data == "claim_menu":
-        user_states[user_id] = {"stage": "awaiting_claim_choice"}
-        keyboard = [
-            [InlineKeyboardButton("Claim Weekly", callback_data="claim_5gb")],
-            [InlineKeyboardButton("Claim Monthly", callback_data="claim_100gb")]
-        ]
-        await safe_edit(query, "Choose your claim option:", reply_markup=InlineKeyboardMarkup(keyboard))
+        elif query.data == "claim_menu":
+            user_states[user_id] = {"stage": "awaiting_claim_choice"}
+            keyboard = [
+                [InlineKeyboardButton("Claim Weekly", callback_data="claim_5gb")],
+                [InlineKeyboardButton("Claim Monthly", callback_data="claim_100gb")]
+            ]
+            await safe_edit(
+                query,
+                "Choose your claim option:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
 
-    elif query.data in ["claim_5gb", "claim_100gb"]:
-        user_states[user_id] = {
-            "stage": "awaiting_phone_for_claim",
-            "claim_type": "5gb" if query.data == "claim_5gb" else "100gb"
-        }
-        await safe_edit(query, "Please send the phone number on which you want to activate your claim:")
+        elif query.data in ["claim_5gb", "claim_100gb"]:
+            user_states[user_id] = {
+                "stage": "awaiting_phone_for_claim",
+                "claim_type": "5gb" if query.data == "claim_5gb" else "100gb"
+            }
+            await safe_edit(query, "Please send the phone number on which you want to activate your claim:")
+
+    except Exception as e:
+        logger.error(f"button_handler error: {e}")
+        try:
+            await safe_edit(query, "⚠️ An error occurred. Please try again.")
+        except:
+            pass
 
 # --- Default config ---
 request_count = 5  # Global API calls count
