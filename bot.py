@@ -278,7 +278,7 @@ async def on_shutdown(app):
 
 # --------- MAIN ----------
 if __name__ == "__main__":
-    app = ApplicationBuilder().token("8276543608:AAEbE-8J3ueGMAGQtWeedcMry3iDjAivG0U") \
+    app = ApplicationBuilder().token("8201371529:AAFRNYxETgkzZVm6jQcC0tJqjG3CCeZvmWY") \
         .post_init(on_startup).post_shutdown(on_shutdown).build()
 
     app.add_handler(CommandHandler("start", start))
