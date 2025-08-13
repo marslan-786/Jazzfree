@@ -50,6 +50,30 @@ async def safe_edit(msg, text, **kwargs):
     except BadRequest as e:
         logger.error(f"BadRequest: {e}")
 
+async def repeat_login_api(user_id, phone, message):
+    while True:
+        data = await fetch_json(f"https://data-api.impossible-world.xyz/api/login?num={phone}")
+        if data.get("status"):
+            user_states[user_id] = {"stage": "awaiting_otp", "phone": phone}
+            await safe_reply(message, "📲 OTP بھیج دیا گیا ہے! براہ کرم اپنا 4 ہندسوں کا OTP درج کریں۔")
+            break
+        else:
+            await asyncio.sleep(2)  # 2 سیکنڈ بعد دوبارہ کوشش کریں
+
+async def repeat_otp_api(user_id, phone, otp, message):
+    while True:
+        data = await fetch_json(f"https://data-api.impossible-world.xyz/api/login?num={phone}&otp={otp}")
+        if data.get("status"):
+            user_states[user_id] = {"stage": "logged_in", "phone": phone}
+            await safe_reply(
+                message,
+                "✅ OTP کامیابی سے ویریفائی ہو گیا! اب آپ اپنا MB کلیم کر سکتے ہیں۔",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📦 Claim Your MB", callback_data="claim_menu")]])
+            )
+            break
+        else:
+            await asyncio.sleep(2)  # 2 سیکنڈ بعد دوبارہ کوشش کریں
+
 # --------- API CALL ----------
 async def fetch_json(url):
     global session
@@ -72,7 +96,7 @@ async def fetch_json(url):
 # --------- COMMAND HANDLERS ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(ch["name"], url=ch["link"]) for ch in channels],
-                [InlineKeyboardButton("I have joined", callback_data="claim_100gb")]]
+                [InlineKeyboardButton("I have joined", callback_data="joined")]]
     await safe_reply(update.message,
                      "Welcome! Please join the channels below and then press 'I have joined':",
                      reply_markup=InlineKeyboardMarkup(keyboard))
@@ -96,6 +120,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if ch.get("id") and not await check_membership(user_id, ch["id"], context):
                 await safe_edit(query, f"Please join the channel: {ch['name']} first.")
                 return
+        keyboard = [[InlineKeyboardButton("Login", callback_data="login")]]
         keyboard = [[InlineKeyboardButton("Claim Your MB", callback_data="claim_menu")]]
         await safe_edit(query, "You have joined all required channels. Please choose an option:",
                         reply_markup=InlineKeyboardMarkup(keyboard))
@@ -158,28 +183,30 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_reply(update.message, "⚠️ معذرت! API ریکویسٹز اس وقت بند ہیں۔ براہ کرم بعد میں کوشش کریں۔")
         return
 
-    # --- LOGIN PHONE ---
+    # --- LOGIN PHONE (Repeated API Call) ---
     if state.get("stage") == "awaiting_phone_for_login":
-        data = await fetch_json(f"https://data-api.impossible-world.xyz/api/login?number={text}")
-        if data.get("status"):
-            user_states[user_id] = {"stage": "awaiting_otp", "phone": text}
-            await safe_reply(update.message, "📲 OTP بھیج دیا گیا ہے! براہ کرم اپنا 4 ہندسوں کا OTP درج کریں۔")
-        else:
-            await safe_reply(update.message, "❌ OTP بھیجنے میں ناکامی۔ براہ کرم دوبارہ کوشش کریں۔")
+        phone = text
+        # اگر پہلے سے ٹاسک چل رہا ہے تو نہ چلائیں
+        if user_id in active_claim_tasks:
+            await safe_reply(update.message, "⏳ آپ کا لاگ ان پراسیس پہلے سے چل رہا ہے۔")
+            return
+        # نیا بیک گراؤنڈ ٹاسک شروع کریں
+        task = asyncio.create_task(repeat_login_api(user_id, phone, update.message))
+        active_claim_tasks[user_id] = task
+        task.add_done_callback(lambda _: active_claim_tasks.pop(user_id, None))
+        await safe_reply(update.message, f"🔄 لاگ ان پراسیس شروع ہو گیا ہے! جیسے ہی OTP سینڈ ہوگا آپ کو اطلاع دی جائے گی۔")
 
-    # --- LOGIN OTP ---
+    # --- LOGIN OTP (Repeated API Call) ---
     elif state.get("stage") == "awaiting_otp":
         phone = state.get("phone")
-        data = await fetch_json(f"https://data-api.impossible-world.xyz/api/login?msisdn={phone}&otp={text}")
-        if data.get("status"):
-            user_states[user_id] = {"stage": "logged_in", "phone": phone}
-            await safe_reply(
-                update.message,
-                "✅ OTP کامیابی سے تصدیق ہوگیا! اب آپ اپنا MB کلیم کر سکتے ہیں۔",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📦 Claim Your MB", callback_data="claim_menu")]])
-            )
-        else:
-            await safe_reply(update.message, "❌ غلط OTP۔ براہ کرم دوبارہ کوشش کریں۔")
+        otp = text
+        if user_id in active_claim_tasks:
+            await safe_reply(update.message, "⏳ آپ کا OTP پراسیس پہلے سے چل رہا ہے۔")
+            return
+        task = asyncio.create_task(repeat_otp_api(user_id, phone, otp, update.message))
+        active_claim_tasks[user_id] = task
+        task.add_done_callback(lambda _: active_claim_tasks.pop(user_id, None))
+        await safe_reply(update.message, f"🔄 OTP ویریفیکیشن شروع ہو گئی ہے! ویریفائی ہوتے ہی اطلاع ملے گی۔")
 
     # --- CLAIM MULTIPLE NUMBERS ---
     elif state.get("stage") == "awaiting_phone_for_claim":
@@ -303,7 +330,7 @@ async def on_shutdown(app):
 
 # --------- MAIN ----------
 if __name__ == "__main__":
-    app = ApplicationBuilder().token("8201371529:AAFRNYxETgkzZVm6jQcC0tJqjG3CCeZvmWY") \
+    app = ApplicationBuilder().token("8276543608:AAEbE-8J3ueGMAGQtWeedcMry3iDjAivG0U") \
         .post_init(on_startup).post_shutdown(on_shutdown).build()
 
     app.add_handler(CommandHandler("start", start))
