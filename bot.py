@@ -141,7 +141,7 @@ user_cancel_flags = {}
 requests_enabled = True  # فرض کریں یہ کہیں globally defined ہے
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global request_count, requests_enabled
+    global request_count, requests_enabled, blocked_numbers
     if not update.message:
         return
 
@@ -188,6 +188,13 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await safe_reply(update.message, "⚠️ براہ کرم درست نمبر درج کریں (مثال: 03001234567 03007654321)")
             return
 
+        # پہلے سے blocked نمبر چیک
+        already_blocked = [p for p in valid_phones if p in blocked_numbers]
+        if already_blocked:
+            await safe_reply(update.message, f"⚠️ یہ نمبر پہلے ہی استعمال ہو چکے ہیں: {', '.join(already_blocked)}")
+            valid_phones = [p for p in valid_phones if p not in blocked_numbers]
+
+        # پہلے سے activated نمبر چیک
         already_activated = [p for p in valid_phones if p in activated_numbers]
         if already_activated:
             await safe_reply(update.message, f"⚠️ یہ نمبر پہلے ہی ایکٹیویٹ ہو چکے ہیں: {', '.join(already_activated)}")
@@ -196,16 +203,16 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not valid_phones:
             return
 
-        # فوراً background میں claim process شروع کر دیں
         asyncio.create_task(
             handle_claim_process(update.message, user_id, valid_phones, state.get("claim_type"))
         )
 
-        # یوزر کو بتا دو کہ process شروع ہو چکا ہے
         await safe_reply(update.message, "⏳ آپ کا claim process شروع ہو گیا ہے، رزلٹ آتے ہی آپ کو بتایا جائے گا۔")
 
     else:
         await safe_reply(update.message, "ℹ️ براہ کرم /start استعمال کریں۔")
+
+blocked_numbers = set()
 
 async def handle_claim_process(message, user_id, valid_phones, claim_type):
     package_activated_any = False
@@ -230,6 +237,14 @@ async def handle_claim_process(message, user_id, valid_phones, claim_type):
                 status_text = resp.get("status", "❌ کوئی اسٹیٹس موصول نہیں ہوا")
                 await safe_reply(message, f"[{phone}] ریکویسٹ {i}: {status_text}")
 
+                # ✅ اگر "Your request has been successfully received" ملا تو فوراً روک دیں
+                if "your request has been successfully received" in status_text.lower():
+                    blocked_numbers.add(phone)
+                    await safe_reply(message, f"[{phone}] ✅ یہ نمبر کامیابی سے submit ہو گیا ہے، مزید کوشش نہیں ہوگی۔")
+                    valid_phones.remove(phone)
+                    continue
+
+                # عام success یا activated میسج
                 if "success" in status_text.lower() or "activated" in status_text.lower():
                     package_activated_any = True
                     success_counts[phone] += 1
@@ -255,19 +270,6 @@ async def handle_claim_process(message, user_id, valid_phones, claim_type):
         await safe_reply(message, "❌ کوئی بھی پیکج ایکٹیویٹ نہیں ہوا، براہ کرم دوبارہ کوشش کریں۔")
 
     user_states[user_id] = {"stage": "logged_in"}
-
-# Global flag
-requests_enabled = True
-
-async def turn_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global requests_enabled
-    requests_enabled = True
-    await update.message.reply_text("✅ API ریکویسٹز اب فعال ہیں۔")
-
-async def turn_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global requests_enabled
-    requests_enabled = False
-    await update.message.reply_text("⛔ API ریکویسٹز اب بند ہیں۔ براہ کرم بعد میں کوشش کریں۔")
 
 # --------- ERROR HANDLER ----------
 async def error_handler(update, context):
