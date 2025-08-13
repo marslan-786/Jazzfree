@@ -309,11 +309,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await safe_reply(update.message, f"⚠️ یہ نمبر پہلے ہی استعمال ہو چکے ہیں: {', '.join(already_blocked)}")
             valid_phones = [p for p in valid_phones if p not in blocked_numbers]
 
-        # Activated check
-        already_activated = [p for p in valid_phones if p in activated_numbers]
-        if already_activated:
-            await safe_reply(update.message, f"⚠️ یہ نمبر پہلے ہی ایکٹیویٹ ہو چکے ہیں: {', '.join(already_activated)}")
-            valid_phones = [p for p in valid_phones if p not in activated_numbers]
+        
 
         if not valid_phones:
             return
@@ -455,9 +451,7 @@ async def claim_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if phone in blocked_numbers:
         await update.message.reply_text(f"⚠️ یہ نمبر پہلے ہی استعمال ہو چکا ہے: {phone}")
         return
-    if phone in activated_numbers:
-        await update.message.reply_text(f"⚠️ یہ نمبر پہلے ہی ایکٹیویٹ ہو چکا ہے: {phone}")
-        return
+    
 
     if user_id in active_claim_tasks:
         await update.message.reply_text("⚠️ آپ کا ایک claim process پہلے سے چل رہا ہے، براہ کرم ختم ہونے کا انتظار کریں۔")
