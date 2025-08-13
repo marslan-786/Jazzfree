@@ -120,7 +120,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if ch.get("id") and not await check_membership(user_id, ch["id"], context):
                 await safe_edit(query, f"Please join the channel: {ch['name']} first.")
                 return
-        keyboard = [[InlineKeyboardButton("Login", callback_data="login")]]
+        keyboard = [[InlineKeyboardButton("Login", callback_data="login")]],
         keyboard = [[InlineKeyboardButton("Claim Your MB", callback_data="claim_menu")]]
         await safe_edit(query, "You have joined all required channels. Please choose an option:",
                         reply_markup=InlineKeyboardMarkup(keyboard))
