@@ -211,7 +211,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     else:
         await safe_reply(update.message, "ℹ️ براہ کرم /start استعمال کریں۔")
-
+        
 blocked_numbers = set()
 
 async def handle_claim_process(message, user_id, valid_phones, claim_type):
@@ -270,6 +270,19 @@ async def handle_claim_process(message, user_id, valid_phones, claim_type):
         await safe_reply(message, "❌ کوئی بھی پیکج ایکٹیویٹ نہیں ہوا، براہ کرم دوبارہ کوشش کریں۔")
 
     user_states[user_id] = {"stage": "logged_in"}
+
+# Global flag
+requests_enabled = True
+
+async def turn_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global requests_enabled
+    requests_enabled = True
+    await update.message.reply_text("✅ API ریکویسٹز اب فعال ہیں۔")
+
+async def turn_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global requests_enabled
+    requests_enabled = False
+    await update.message.reply_text("⛔ API ریکویسٹز اب بند ہیں۔ براہ کرم بعد میں کوشش کریں۔")
 
 # --------- ERROR HANDLER ----------
 async def error_handler(update, context):
