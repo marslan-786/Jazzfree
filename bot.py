@@ -60,19 +60,27 @@ async def repeat_login_api(user_id, phone, message):
         else:
             await asyncio.sleep(2)  # 2 سیکنڈ بعد دوبارہ کوشش کریں
 
-async def repeat_otp_api(user_id, phone, otp, message):
+async def repeat_login_api(user_id, phone, message):
     while True:
-        data = await fetch_json(f"https://data-api.impossible-world.xyz/api/login?num={phone}&otp={otp}")
-        if data.get("status"):
+        data = await fetch_json(f"https://data-api.impossible-world.xyz/api/login?num={phone}")
+        msg = (data.get("message") or "").lower()
+        # OTP successfully generated
+        if "otp successfully generated" in msg:
+            user_states[user_id] = {"stage": "awaiting_otp", "phone": phone}
+            await safe_reply(message, "✅ آپ کی پن کامیابی سے سینڈ کر دی گئی ہے، براہ کرم نیچے پن درج کریں۔")
+            break
+        # Pin not allowed
+        elif "pin not allowed" in msg:
             user_states[user_id] = {"stage": "logged_in", "phone": phone}
             await safe_reply(
                 message,
-                "✅ OTP کامیابی سے ویریفائی ہو گیا! اب آپ اپنا MB کلیم کر سکتے ہیں۔",
+                "ℹ️ آپ اس نمبر کو پہلے ہی ویریفائی کر چکے ہیں، براہ کرم اپنا پیکج ایکٹیویٹ کریں۔",
                 reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📦 Claim Your MB", callback_data="claim_menu")]])
             )
             break
+        # Any other error, repeat after 2 seconds
         else:
-            await asyncio.sleep(2)  # 2 سیکنڈ بعد دوبارہ کوشش کریں
+            await asyncio.sleep(2)
 
 # --------- API CALL ----------
 async def fetch_json(url):
