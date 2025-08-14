@@ -21,7 +21,7 @@ channels = [
     {"name": "JND TECH", "link": "https://t.me/jndtech1"},
     {"name": "Black Hat", "link": "https://t.me/+2P-OUmWo1hc0NmNh"},
     {"name": "Sigma 👿", "link": "https://t.me/HunterXSigma"},
-    {"name": "B Hat", "link": "https://t.me/SigmaXDiscus"}
+    {"name": "SYBER EXPERT", "link": "https://t.me/CRACKEDEVER"}
 ]
 
 user_states = {}
