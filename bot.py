@@ -23,7 +23,8 @@ channels = [
     {"name": "Sudais Ahmed", "link": "http://t.me/sudais_ahmed"},
     {"name": "JND TECH", "link": "https://t.me/jndtech1"},
     {"name": "SYBER EXPERT", "link": "https://t.me/CRACKEDEVER"},
-    {"name": "HS TECH", "link": "https://t.me/haseeb117"}
+    {"name": "HS TECH", "link": "https://t.me/haseeb117"},
+    {"name": "Legend Trick", "link": "https://t.me/+qiK5F-BmdbM1Mzg0"}
 ]
 
 user_states = {}
