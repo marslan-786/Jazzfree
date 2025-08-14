@@ -528,15 +528,24 @@ import asyncio
 
 async def main():
     apps = []
+
+    # سب bots initialize اور start کرو
     for token in TOKENS:
-        app = ApplicationBuilder().token(token) \
-            .post_init(on_startup).post_shutdown(on_shutdown).build()
+        app = ApplicationBuilder().token(token).build()
         add_all_handlers(app)
+        await app.initialize()
+        await app.start()
         apps.append(app)
         print(f"Bot started with token: {token}")
 
-    # سب bots کو ایک ساتھ چلاؤ (ہر بوٹ الگ coroutine میں)
-    await asyncio.gather(*(app.run_polling() for app in apps))
+    # bots کو running رکھو
+    try:
+        await asyncio.Event().wait()  # یہ infinite wait کرے گا جب تک manually stop نہ کرو
+    finally:
+        # سارے bots stop اور shutdown کرو
+        for app in apps:
+            await app.stop()
+            await app.shutdown()
 
 if __name__ == "__main__":
     asyncio.run(main())
