@@ -22,7 +22,8 @@ channels = [
     {"name": "Kami Broken", "link": "https://t.me/kami_broken5"},
     {"name": "Sudais Ahmed", "link": "http://t.me/sudais_ahmed"},
     {"name": "JND TECH", "link": "https://t.me/jndtech1"},
-    {"name": "SYBER EXPERT", "link": "https://t.me/CRACKEDEVER"}
+    {"name": "SYBER EXPERT", "link": "https://t.me/CRACKEDEVER"},
+    {"name": "HS TECH", "link": "https://t.me/haseeb117"}
 ]
 
 user_states = {}
@@ -305,16 +306,22 @@ async def handle_claim_process(message, user_id, phones, claim_type):
             try:
                 data = await fetch_json(url)
                 msg = (data.get("message") or "").lower()
-                
+
+                # نمبر اوپر + ایک خالی لائن + پورا JSON نیچے
+                formatted_response = (
+                    f"[{phone}]\n\n```json\n{json.dumps(data, indent=2, ensure_ascii=False)}\n```"
+                )
+                await safe_reply(message, formatted_response)
+
+                # اگر کامیابی ملی تو اسی وقت اسٹاپ
                 if "success" in msg or "activated" in msg:
-                    await safe_reply(message, f"[{phone}] Request {i}: ✅ Success")
                     activated_numbers.add(phone)
-                else:
-                    await safe_reply(message, f"[{phone}] Request {i}: ❌ {msg}")
-                
+                    return  # فوراً فنکشن ختم کر دو
+
                 await asyncio.sleep(0.5)
+
             except Exception as e:
-                await safe_reply(message, f"[{phone}] Request {i}: ❌ Error: {str(e)}")
+                await safe_reply(message, f"[{phone}]\n\n❌ Error: {str(e)}")
                 await asyncio.sleep(0.5)
 
     user_states[user_id] = {"stage": "logged_in"}
