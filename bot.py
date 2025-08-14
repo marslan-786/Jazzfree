@@ -495,10 +495,22 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🛑 آپ کا پراسیس روک دیا گیا ہے۔")
 
 # --------- MAIN ----------
-if __name__ == "__main__":
-    app = ApplicationBuilder().token("8276543608:AAEbE-8J3ueGMAGQtWeedcMry3iDjAivG0U") \
-        .post_init(on_startup).post_shutdown(on_shutdown).build()
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 
+TOKENS = [
+    "8276543608:AAEbE-8J3ueGMAGQtWeedcMry3iDjAivG0U",
+    "8224844544:AAFpI-iycJQCyzu0FAduPjn5ztos3Rylr3Q",
+    "8356375247:AAH_EGWGTiouHMI0Ba-CkY66K4DXcBQPzVs",
+    "8020275808:AAGWNYI4SPYJ2yQ_F7INbH8ZcwDuYPqil10",
+    "8407271613:AAGSKdrwamP2GOKklg3_Be2xGQiNip5hVmw",
+    "8403628798:AAHW3XuyMZpgfKt2mEJwS0tMTvTtoxSyhck",
+    "7787284037:AAGWstgBGla0B06B_3Re1A6WJbux_703hgQ",
+    "8335584448:AAGmW5n4_xwN9MfMeDL8jBMUsOBEMj42D7Y",
+    "7459204571:AAEo-CD_K9FjOPiKdg3gXSvAOat55h37Y0Q",
+    # جتنے چاہیں ٹوکن یہاں ڈالیں
+]
+
+def add_all_handlers(app):
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), message_handler))
@@ -511,6 +523,20 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("del", del_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("stop", stop_command))
-    
-    print("Bot is running...")
-    app.run_polling()
+
+import asyncio
+
+async def main():
+    apps = []
+    for token in TOKENS:
+        app = ApplicationBuilder().token(token) \
+            .post_init(on_startup).post_shutdown(on_shutdown).build()
+        add_all_handlers(app)
+        apps.append(app)
+        print(f"Bot started with token: {token}")
+
+    # سب bots کو ایک ساتھ چلاؤ (ہر بوٹ الگ coroutine میں)
+    await asyncio.gather(*(app.run_polling() for app in apps))
+
+if __name__ == "__main__":
+    asyncio.run(main())
