@@ -16,19 +16,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
-# مشترکہ چینل مینیو (Bot2, Bot3, Bot4, Bot5 کے لیے)
-CHANNEL_MENU_A = [
+CHANNEL_1 = [
     {"name": "Impossible", "link": "https://t.me/only_possible_world", "id": "-1002650289632"},
     {"name": "Kami Broken", "link": "https://t.me/kami_broken5"},
-]
-
-# علیحدہ چینل مینیو (Bot6 کے لیے)
-CHANNEL_MENU_B = [
+    {"name": "Sudais Ahmed", "link": "http://t.me/sudais_ahmed"},
+    {"name": "JND TECH", "link": "https://t.me/jndtech1"},
+    {"name": "SYBER EXPERT", "link": "https://t.me/CRACKEDEVER"},
     {"name": "HS TECH", "link": "https://t.me/haseeb117"},
     {"name": "Legend Trick", "link": "https://t.me/+qiK5F-BmdbM1Mzg0"},
+    {"name": "HUNTER", "link": "https://t.me/HunterXSigma"}
 ]
-
+CHANNEL_2 = [
+    {"name": "HUNTER", "link": "https://t.me/HunterXSigma"},
+    {"name": "Impossible", "link": "https://t.me/only_possible_world", "id": "-1002650289632"}
+]
 # ٹوکن لسٹ اور چینل مینیو میپنگ
 TOKENS = {
     "BOT1": {
@@ -73,20 +74,7 @@ TOKENS = {
     }
 }
 # Global variables
-CHANNEL_1 = [
-    {"name": "Impossible", "link": "https://t.me/only_possible_world", "id": "-1002650289632"},
-    {"name": "Kami Broken", "link": "https://t.me/kami_broken5"},
-    {"name": "Sudais Ahmed", "link": "http://t.me/sudais_ahmed"},
-    {"name": "JND TECH", "link": "https://t.me/jndtech1"},
-    {"name": "SYBER EXPERT", "link": "https://t.me/CRACKEDEVER"},
-    {"name": "HS TECH", "link": "https://t.me/haseeb117"},
-    {"name": "Legend Trick", "link": "https://t.me/+qiK5F-BmdbM1Mzg0"},
-    {"name": "HUNTER", "link": "https://t.me/HunterXSigma"}
-]
-CHANNEL_2 = [
-    {"name": "HUNTER", "link": "https://t.me/HunterXSigma"},
-    {"name": "Impossible", "link": "https://t.me/only_possible_world", "id": "-1002650289632"}
-]
+
 
 user_states = {}
 user_cancel_flags = {}
