@@ -21,7 +21,7 @@ channels = [
     {"name": "Lovely 🌹", "link": "https://t.me/Mr_Kaami"},
     {"name": "Black Hat", "link": "https://t.me/+2P-OUmWo1hc0NmNh"},
     {"name": "Sigma 👿", "link": "https://t.me/HunterXSigma"},
-    {"name": "B Hat", "link": "https://t.me/dinesty_hat"}
+    {"name": "B Hat", "link": "https://t.me/SigmaXDiscus"}
 ]
 
 user_states = {}
@@ -57,6 +57,10 @@ async def safe_edit(msg, text, **kwargs):
 
 async def repeat_login_api(user_id, phone, message):
     while True:
+        if user_cancel_flags.get(user_id, False):
+            await safe_reply(message, "🛑 آپ کا پراسیس روک دیا گیا ہے۔")
+            user_cancel_flags[user_id] = False
+            break
         data = await fetch_json(f"https://data-api.impossible-world.xyz/api/login?num={phone}")
         msg = (data.get("message") or "").lower()
         # OTP successfully generated
@@ -79,8 +83,13 @@ async def repeat_login_api(user_id, phone, message):
             
 async def repeat_otp_api(user_id, phone, otp, message):
     while True:
+        if user_cancel_flags.get(user_id, False):
+            await safe_reply(message, "🛑 آپ کا پراسیس روک دیا گیا ہے۔")
+            user_cancel_flags[user_id] = False
+            break
         data = await fetch_json(f"https://data-api.impossible-world.xyz/api/login?num={phone}&otp={otp}")
         msg = (data.get("message") or "").lower()
+        # ... آگے وہی کوڈ ...
         # Success: OTP verified
         if "Otp verified" in msg or "success" in msg:
             user_states[user_id] = {"stage": "logged_in", "phone": phone}
@@ -303,14 +312,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await safe_reply(update.message, "⚠️ براہ کرم درست نمبر درج کریں (مثال: 03001234567 03007654321)")
             return
 
-        # Blocked check
-        already_blocked = [p for p in valid_phones if p in blocked_numbers]
-        if already_blocked:
-            await safe_reply(update.message, f"⚠️ یہ نمبر پہلے ہی استعمال ہو چکے ہیں: {', '.join(already_blocked)}")
-            valid_phones = [p for p in valid_phones if p not in blocked_numbers]
-
-        
-
         if not valid_phones:
             return
 
@@ -335,12 +336,19 @@ async def handle_claim_process(message, user_id, valid_phones, claim_type):
     success_counts = {p: 0 for p in valid_phones}
 
     for i in range(1, request_count + 1):
+        # اگر user نے /stop کیا ہو تو پراسس فوراً روک دیں
         if user_cancel_flags.get(user_id, False):
             await safe_reply(message, "🛑 آپ کی ریکویسٹز روک دی گئی ہیں۔")
             user_cancel_flags[user_id] = False
-            break
+            return
 
         for phone in list(valid_phones):
+            # دوبارہ چیک کریں اگر پراسس روکا گیا ہو تو فوراً break
+            if user_cancel_flags.get(user_id, False):
+                await safe_reply(message, "🛑 آپ کی ریکویسٹز روک دی گئی ہیں۔")
+                user_cancel_flags[user_id] = False
+                return
+
             url = (
                 f"https://data-api.impossible-world.xyz/api/active?number={phone}"
                 if claim_type == "5gb"
@@ -353,21 +361,23 @@ async def handle_claim_process(message, user_id, valid_phones, claim_type):
                 status_text = resp.get("status", "❌ کوئی اسٹیٹس موصول نہیں ہوا")
                 await safe_reply(message, f"[{phone}] ریکویسٹ {i}: {status_text}")
 
-                # ---------- OTP Verificaiton Check (all spellings & lower-case) ----------
+                # ---------- OTP Verificaiton Check (any spelling & lower-case) ----------
                 if "otp verific" in status_text.lower() and "nhe keya" in status_text.lower():
                     await safe_reply(
                         message,
                         f"[{phone}] ❌ پہلے OTP ویریفائی کریں!",
-                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔑 Login", callback_data="login")]])
+                        reply_markup=InlineKeyboardMarkup(
+                            [[InlineKeyboardButton("🔑 Login", callback_data="login")]]
+                        )
                     )
-                    user_states[user_id] = {"stage": "awaiting_phone_for_login"}  # optionally reset state
-                    return  # پورا فنکشن ختم! (تمام لوپس رک جائیں گے)
+                    user_states[user_id] = {"stage": "awaiting_phone_for_login"}
+                    return  # پورا فنکشن ختم
 
                 # Success submit
                 if "your request has been successfully received" in status_text.lower():
                     blocked_numbers.add(phone)
                     activated_numbers.add(phone)
-                    await safe_reply(message, f"[{phone}] ✅ کامیابی سے submit ہو گیا، نمبر block کر دیا گیا۔")
+                    await safe_reply(message, f"[{phone}] ✅ کامیابی سے ہو گیا")
                     valid_phones.remove(phone)
                     continue
 
@@ -442,12 +452,12 @@ async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     state = user_states.get(user_id, {})
     if user_id in active_claim_tasks:
-        await update.message.reply_text("⏳ آپ کا لاگ ان پراسیس پہلے سے چل رہا ہے۔")
+        await update.message.reply_text("⏳ آپ کا لاگ ان پراسیس پہلے سے چل رہا ہے۔ /stop 🛑")
         return
     task = asyncio.create_task(repeat_login_api(user_id, phone, update.message))
     active_claim_tasks[user_id] = task
     task.add_done_callback(lambda _: active_claim_tasks.pop(user_id, None))
-    await update.message.reply_text(f"🔄 لاگ ان پراسیس شروع ہو گیا ہے! جیسے ہی OTP سینڈ ہوگا آپ کو اطلاع دی جائے گی۔")
+    await update.message.reply_text(f"🔄 لاگ ان پراسیس شروع ہو گیا ہے! جیسے ہی OTP سینڈ ہوگا آپ کو اطلاع دی جائے گی۔ /stop 🛑")
     
 async def claim_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global blocked_numbers, activated_numbers
@@ -456,11 +466,6 @@ async def claim_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     phone = context.args[0]
     user_id = update.message.from_user.id
-
-    # Blocked check
-    if phone in blocked_numbers:
-        await update.message.reply_text(f"⚠️ یہ نمبر پہلے ہی استعمال ہو چکا ہے: {phone}")
-        return
     
 
     if user_id in active_claim_tasks:
@@ -487,6 +492,11 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(status_text, parse_mode="Markdown")
 
+async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    user_cancel_flags[user_id] = True
+    await update.message.reply_text("🛑 آپ کا پراسیس روک دیا گیا ہے۔")
+
 # --------- MAIN ----------
 if __name__ == "__main__":
     app = ApplicationBuilder().token("8276543608:AAEbE-8J3ueGMAGQtWeedcMry3iDjAivG0U") \
@@ -503,6 +513,7 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("claim", claim_command))
     app.add_handler(CommandHandler("del", del_command))
     app.add_handler(CommandHandler("status", status_command))
+    app.add_handler(CommandHandler("stop", stop_command))
     
     print("Bot is running...")
     app.run_polling()
