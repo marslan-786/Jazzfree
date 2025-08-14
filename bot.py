@@ -1,6 +1,6 @@
 import aiohttp
 import asyncio
-import os
+import json
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import Forbidden, BadRequest
@@ -8,8 +8,6 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler,
     MessageHandler, filters, ContextTypes
 )
-from fastapi import FastAPI, Request
-import uvicorn
 
 # Logging setup
 logging.basicConfig(
@@ -52,16 +50,46 @@ async def close_session():
 
 # --------- SAFE MESSAGE SEND ----------
 async def safe_reply(msg, text, **kwargs):
+    """
+    Robust reply that works with both Message and CallbackQuery.
+    """
     try:
-        await msg.reply_text(text, **kwargs)
+        # If it's a CallbackQuery, reply to the underlying message
+        if hasattr(msg, "message") and hasattr(msg.message, "reply_text"):
+            await msg.message.reply_text(text, **kwargs)
+        elif hasattr(msg, "reply_text"):
+            await msg.reply_text(text, **kwargs)
+        else:
+            logger.error("safe_reply: Unsupported object passed")
     except Forbidden:
-        logger.warning(f"User blocked the bot: {msg.chat_id}")
+        # msg could be Message or CallbackQuery; get chat id safely if possible
+        chat_id = None
+        try:
+            chat_id = getattr(getattr(msg, "chat", None), "id", None) or getattr(getattr(msg, "message", None), "chat_id", None)
+        except Exception:
+            pass
+        logger.warning(f"User blocked the bot: {chat_id}")
     except BadRequest as e:
         logger.error(f"BadRequest: {e}")
 
 async def safe_edit(msg, text, **kwargs):
+    """
+    Robust edit that works with both Message (edit_text) and CallbackQuery (edit_message_text).
+    """
     try:
-        await msg.edit_text(text, **kwargs)
+        # CallbackQuery has edit_message_text
+        if hasattr(msg, "edit_message_text"):
+            await msg.edit_message_text(text, **kwargs)
+            return
+        # Message has edit_text
+        if hasattr(msg, "edit_text"):
+            await msg.edit_text(text, **kwargs)
+            return
+        # Sometimes we might get CallbackQuery but need to reach .message
+        if hasattr(msg, "message") and hasattr(msg.message, "edit_text"):
+            await msg.message.edit_text(text, **kwargs)
+            return
+        logger.error("safe_edit: Unsupported object passed")
     except Forbidden:
         logger.warning("User blocked the bot while editing message")
     except BadRequest as e:
@@ -114,6 +142,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Callback answer error: {e}")
 
     if query.data == "joined":
+        # Check if user has joined all channels
         all_joined = True
         for ch in channels:
             if ch.get("id"):
@@ -143,7 +172,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("Claim Weekly", callback_data="claim_5gb")],
             [InlineKeyboardButton("Claim Monthly", callback_data="claim_100gb")]
         ]
-        await safe_edit(query, "Choose your claim option:", reply_markup=InlineKeyboardMarkup(keyboard))
+        await safe_edit(
+            query,
+            "Choose your claim option:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
     elif query.data in ["claim_5gb", "claim_100gb"]:
         user_states[user_id] = {
@@ -164,6 +197,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_reply(update.message, "⚠️ Requests are currently disabled.")
         return
 
+    # Handle different states
     if state.get("stage") == "awaiting_phone_for_login":
         phone = text
         if user_id in active_claim_tasks:
@@ -327,7 +361,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Update {update} caused error {context.error}", exc_info=context.error)
 
 # --------- MAIN FUNCTION ----------
-async def setup_bot(token):
+async def run_bot(token):
     app = ApplicationBuilder().token(token).build()
     
     # Add handlers
@@ -341,79 +375,62 @@ async def setup_bot(token):
     app.add_handler(CommandHandler("stop", stop_command))
     app.add_error_handler(error_handler)
     
+    await app.initialize()
+    await app.start()
+
+    # ✅ Start polling so that commands like /start actually work
+    await app.updater.start_polling(drop_pending_updates=True)
+
+    logger.info(f"Bot with token {token[-5:]} started successfully")
     return app
 
 async def main():
     await init_session()
     
     TOKENS = [
-        "8276543608:AAEbE-8J3ueGMAGQtWeedcMry3iDjAivG0U",
-        "8224844544:AAFpI-iycJQCyzu0FAduPjn5ztos3Rylr3Q",
-        "8356375247:AAH_EGWGTiouHMI0Ba-CkY66K4DXcBQPzVs",
-        "8020275808:AAGWNYI4SPYJ2yQ_F7INbH8ZcwDuYPqil10",
-        "8407271613:AAGSKdrwamP2GOKklg3_Be2xGQiNip5hVmw",
-        "8403628798:AAHW3XuyMZpgfKt2mEJwS0tMTvTtoxSyhck",
-        "7787284037:AAGWstgBGla0B06B_3Re1A6WJbux_703hgQ",
-        "8335584448:AAGmW5n4_xwN9MfMeDL8jBMUsOBEMj42D7Y",
-        "7459204571:AAEo-CD_K9FjOPiKdg3gXSvAOat55h37Y0Q",
+            "8276543608:AAEbE-8J3ueGMAGQtWeedcMry3iDjAivG0U",
+            "8224844544:AAFpI-iycJQCyzu0FAduPjn5ztos3Rylr3Q",
+            "8356375247:AAH_EGWGTiouHMI0Ba-CkY66K4DXcBQPzVs",
+            "8020275808:AAGWNYI4SPYJ2yQ_F7INbH8ZcwDuYPqil10",
+            "8407271613:AAGSKdrwamP2GOKklg3_Be2xGQiNip5hVmw",
+            "8403628798:AAHW3XuyMZpgfKt2mEJwS0tMTvTtoxSyhck",
+            "7787284037:AAGWstgBGla0B06B_3Re1A6WJbux_703hgQ",
+            "8335584448:AAGmW5n4_xwN9MfMeDL8jBMUsOBEMj42D7Y",
+            "7459204571:AAEo-CD_K9FjOPiKdg3gXSvAOat55h37Y0Q",
+    
     ]
     
-    PORT = int(os.environ.get("PORT", 8000))
-    WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
-    
-    if WEBHOOK_URL:
-        # Webhook mode for Railway
-        server = FastAPI()
-        apps = {}
-        
-        @server.post("/{token}")
-        async def webhook(request: Request, token: str):
-            app = apps.get(token)
-            if app:
-                data = await request.json()
-                update = Update.de_json(data, app.bot)
-                await app.update_queue.put(update)
-            return {"status": "ok"}
-        
-        # Setup all bots
+    bots = []
+    try:
         for token in TOKENS:
             try:
-                app = await setup_bot(token)
-                await app.bot.set_webhook(f"{WEBHOOK_URL}/{token}")
-                apps[token] = app
-                logger.info(f"Bot with token {token[-5:]} setup with webhook")
+                bot = await run_bot(token)
+                bots.append(bot)
             except Exception as e:
-                logger.error(f"Failed to setup bot with token {token[-5:]}: {e}")
+                logger.error(f"Failed to start bot with token {token[-5:]}: {e}")
         
-        config = uvicorn.Config(
-            server,
-            host="0.0.0.0",
-            port=PORT,
-            log_level="info"
-        )
-        server = uvicorn.Server(config)
-        await server.serve()
-    else:
-        # Polling mode for local development
-        bots = []
-        try:
-            for token in TOKENS:
-                try:
-                    app = await setup_bot(token)
-                    await app.initialize()
-                    await app.start()
-                    bots.append(app)
-                    logger.info(f"Bot with token {token[-5:]} started with polling")
-                except Exception as e:
-                    logger.error(f"Failed to start bot with token {token[-5:]}: {e}")
+        # Keep running
+        while True:
+            await asyncio.sleep(3600)
             
-            while True:
-                await asyncio.sleep(3600)
-        finally:
-            for app in bots:
-                await app.stop()
-                await app.shutdown()
-            await close_session()
+    except asyncio.CancelledError:
+        pass
+    finally:
+        # ✅ Graceful shutdown for all apps
+        for bot in bots:
+            try:
+                await bot.updater.stop()
+            except Exception as e:
+                logger.error(f"Error stopping updater: {e}")
+            try:
+                await bot.stop()
+            except Exception as e:
+                logger.error(f"Error stopping bot: {e}")
+            try:
+                await bot.shutdown()
+            except Exception as e:
+                logger.error(f"Error during shutdown: {e}")
+        await close_session()
 
 if __name__ == "__main__":
     try:
