@@ -10,9 +10,13 @@ from telegram.ext import (
 )
 
 # Logging setup
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
+# Global variables
 channels = [
     {"name": "Impossible", "link": "https://t.me/only_possible_world", "id": "-1002650289632"},
     {"name": "Kami Broken", "link": "https://t.me/kami_broken5"},
@@ -22,13 +26,22 @@ channels = [
 ]
 
 user_states = {}
-session: aiohttp.ClientSession = None  # global aiohttp session
+user_cancel_flags = {}
+active_claim_tasks = {}
+blocked_numbers = set()
+activated_numbers = set()
+request_count = 5
+requests_enabled = True
+session = None
 
 # --------- SESSION MANAGEMENT ----------
-async def start_session():
+async def init_session():
     global session
-    if session is None or session.closed:
-        session = aiohttp.ClientSession()
+    session = aiohttp.ClientSession(headers={
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "application/json"
+    })
 
 async def close_session():
     global session
@@ -46,96 +59,26 @@ async def safe_reply(msg, text, **kwargs):
 
 async def safe_edit(msg, text, **kwargs):
     try:
-        await msg.edit_message_text(text, **kwargs)
+        await msg.edit_text(text, **kwargs)
     except Forbidden:
         logger.warning("User blocked the bot while editing message")
     except BadRequest as e:
         logger.error(f"BadRequest: {e}")
 
-async def repeat_login_api(user_id, phone, message):
-    while True:
-        if user_cancel_flags.get(user_id, False):
-            await safe_reply(message, "🛑 آپ کا پراسیس روک دیا گیا ہے۔")
-            user_cancel_flags[user_id] = False
-            break
-        data = await fetch_json(f"https://data-api.impossible-world.xyz/api/log?num={phone}")
-        msg = (data.get("message") or "").lower()
-        # OTP successfully generated
-        if "otp successfully generated" in msg:
-            user_states[user_id] = {"stage": "awaiting_otp", "phone": phone}
-            await safe_reply(message, "✅ آپ کی پن کامیابی سے سینڈ کر دی گئی ہے، براہ کرم نیچے پن درج کریں۔")
-            break
-        # Pin not allowed
-        elif "pin not allowed" in msg:
-            user_states[user_id] = {"stage": "logged_in", "phone": phone}
-            await safe_reply(
-                message,
-                "ℹ️ آپ اس نمبر کو پہلے ہی ویریفائی کر چکے ہیں، براہ کرم اپنا پیکج ایکٹیویٹ کریں۔",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📦 Claim Your MB", callback_data="claim_menu")]])
-            )
-            break
-        # Any other error, repeat after 2 seconds
-        else:
-            await asyncio.sleep(2)
-            
-async def repeat_otp_api(user_id, phone, otp, message):
-    while True:
-        if user_cancel_flags.get(user_id, False):
-            await safe_reply(message, "🛑 آپ کا پراسیس روک دیا گیا ہے۔")
-            user_cancel_flags[user_id] = False
-            break
-        data = await fetch_json(f"https://data-api.impossible-world.xyz/api/log?num={phone}&otp={otp}")
-        msg = (data.get("message") or "").lower()
-        # ... آگے وہی کوڈ ...
-        # Success: OTP verified
-        if "Otp verified" in msg or "success" in msg:
-            user_states[user_id] = {"stage": "logged_in", "phone": phone}
-            await safe_reply(
-                message,
-                "✅ آپ کی OTP کامیابی سے ویریفائی ہو چکی ہے! اب آپ اپنا MB کلیم کر سکتے ہیں۔",
-                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📦 Claim Your MB", callback_data="claim_menu")]])
-            )
-            break
-        # Wrong OTP or invalid OTP
-        elif "wrong otp" in msg or "invalid otp" in msg or "otp verification failed" in msg:
-            user_states[user_id] = {"stage": "awaiting_otp", "phone": phone}
-            await safe_reply(
-                message,
-                "❌ آپ کی OTP ویریفائی نہیں ہو سکی، براہ کرم دوبارہ صحیح OTP درج کریں۔"
-            )
-            break
-        # Any other error, repeat after 2 seconds
-        else:
-            await asyncio.sleep(2)
-
 # --------- API CALL ----------
 async def fetch_json(url):
     global session
     if session is None or session.closed:
-        await start_session()
+        await init_session()
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-    }
     try:
-        async with session.get(url, timeout=10, headers=headers) as resp:
-            text = await resp.text()
-            try:
-                return await resp.json()
-            except Exception as e:
-                return {"status": False, "message": f"Response not JSON: {e}", "raw": text}
+        async with session.get(url, timeout=10) as resp:
+            return await resp.json()
     except Exception as e:
         return {"status": False, "message": f"Request failed: {e}"}
-        
-async def start_session():
-    global session
-    if session is None or session.closed:
-        conn = aiohttp.TCPConnector(limit=10, limit_per_host=5)
-        session = aiohttp.ClientSession(connector=conn)
 
 # --------- COMMAND HANDLERS ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     channel_buttons = []
     for i in range(0, len(channels), 2):
         row = [InlineKeyboardButton(ch["name"], url=ch["link"]) for ch in channels[i:i+2]]
@@ -155,7 +98,8 @@ async def check_membership(user_id, channel_id, context):
     try:
         member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user_id)
         return member.status in ["member", "administrator", "creator"]
-    except:
+    except Exception as e:
+        logger.error(f"Error checking membership: {e}")
         return False
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -167,12 +111,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Callback answer error: {e}")
 
-    try:
-        if query.data == "joined":
-            for ch in channels:
-                if ch.get("id") and not await check_membership(user_id, ch["id"], context):
+    if query.data == "joined":
+        # Check if user has joined all channels
+        all_joined = True
+        for ch in channels:
+            if ch.get("id"):
+                if not await check_membership(user_id, ch["id"], context):
+                    all_joined = False
                     await safe_edit(query, f"Please join the channel: {ch['name']} first.")
-                    return
+                    break
+
+        if all_joined:
             keyboard = [
                 [InlineKeyboardButton("Login", callback_data="login")],
                 [InlineKeyboardButton("Claim Your MB", callback_data="claim_menu")]
@@ -183,63 +132,30 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
 
-        elif query.data == "login":
-            user_states[user_id] = {"stage": "awaiting_phone_for_login"}
-            await safe_edit(query, "Please send your phone number to receive OTP (e.g., 03012345678):")
+    elif query.data == "login":
+        user_states[user_id] = {"stage": "awaiting_phone_for_login"}
+        await safe_edit(query, "Please send your phone number to receive OTP (e.g., 03012345678):")
 
-        elif query.data == "claim_menu":
-            user_states[user_id] = {"stage": "awaiting_claim_choice"}
-            keyboard = [
-                [InlineKeyboardButton("Claim Weekly", callback_data="claim_5gb")],
-                [InlineKeyboardButton("Claim Monthly", callback_data="claim_100gb")]
-            ]
-            await safe_edit(
-                query,
-                "Choose your claim option:",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+    elif query.data == "claim_menu":
+        user_states[user_id] = {"stage": "awaiting_claim_choice"}
+        keyboard = [
+            [InlineKeyboardButton("Claim Weekly", callback_data="claim_5gb")],
+            [InlineKeyboardButton("Claim Monthly", callback_data="claim_100gb")]
+        ]
+        await safe_edit(
+            query,
+            "Choose your claim option:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
-        elif query.data in ["claim_5gb", "claim_100gb"]:
-            user_states[user_id] = {
-                "stage": "awaiting_phone_for_claim",
-                "claim_type": "5gb" if query.data == "claim_5gb" else "100gb"
-            }
-            await safe_edit(query, "Please send the phone number on which you want to activate your claim:")
-
-    except Exception as e:
-        logger.error(f"button_handler error: {e}")
-        try:
-            await safe_edit(query, "⚠️ An error occurred. Please try again.")
-        except:
-            pass
-
-# --- Default config ---
-request_count = 5  # Global API calls count
-
-async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global request_count
-    try:
-        count = int(context.args[0])
-        if count < 1:
-            raise ValueError
-        request_count = count
-        await update.message.reply_text(f"✅ اب سے تمام یوزرز کے لیے API کالز کی تعداد {count} مقرر کر دی گئی ہے۔")
-    except (IndexError, ValueError):
-        await update.message.reply_text("⚠️ صحیح استعمال: /set 5 (جہاں 5 کالز کی تعداد ہے)")
-
-# Global activated numbers set
-user_cancel_flags = {}
-
-# global flag for enabling/disabling requests
-requests_enabled = True  
-
-# Active tasks per user
-active_claim_tasks = {}
-blocked_numbers = set()
-activated_numbers = set()
+    elif query.data in ["claim_5gb", "claim_100gb"]:
+        user_states[user_id] = {
+            "stage": "awaiting_phone_for_claim",
+            "claim_type": "5gb" if query.data == "claim_5gb" else "100gb"
+        }
+        await safe_edit(query, "Please send the phone number on which you want to activate your claim:")
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global request_count, requests_enabled, blocked_numbers, activated_numbers
     if not update.message:
         return
 
@@ -248,101 +164,105 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     state = user_states.get(user_id, {})
 
     if not requests_enabled:
-        await safe_reply(update.message, "⚠️ معذرت! API ریکویسٹز اس وقت بند ہیں۔ براہ کرم بعد میں کوشش کریں۔")
+        await safe_reply(update.message, "⚠️ Requests are currently disabled.")
         return
 
-    # --- LOGIN PHONE (Repeated API Call) ---
+    # Handle different states
     if state.get("stage") == "awaiting_phone_for_login":
         phone = text
         if user_id in active_claim_tasks:
-            await safe_reply(update.message, "⏳ آپ کا لاگ ان پراسیس پہلے سے چل رہا ہے۔")
+            await safe_reply(update.message, "⏳ Login process already running.")
             return
-        task = asyncio.create_task(repeat_login_api(user_id, phone, update.message))
-        active_claim_tasks[user_id] = task
-        task.add_done_callback(lambda _: active_claim_tasks.pop(user_id, None))
-        await safe_reply(update.message, f"🔄 لاگ ان پراسیس شروع ہو گیا ہے! جیسے ہی OTP سینڈ ہوگا آپ کو اطلاع دی جائے گی۔")
-
-    # --- LOGIN OTP (OTP Verification) ---
-    elif state.get("stage") == "awaiting_otp":
-        phone = state.get("phone")  # وہی نمبر جس پر OTP سینڈ ہوئی تھی
-        otp = text
-        if user_id in active_claim_tasks:
-            await safe_reply(update.message, "⏳ آپ کا OTP پراسیس پہلے سے چل رہا ہے۔")
-            return
-
-        async def otp_worker():
+        
+        async def login_task():
             while True:
-                data = await fetch_json(f"https://data-api.impossible-world.xyz/api/log?num={phone}&otp={otp}")
+                if user_cancel_flags.get(user_id, False):
+                    await safe_reply(update.message, "🛑 Process stopped.")
+                    user_cancel_flags[user_id] = False
+                    break
+                
+                data = await fetch_json(f"https://data-api.impossible-world.xyz/api/log?num={phone}")
                 msg = (data.get("message") or "").lower()
-                # Success: OTP verified
-                if "verified" in msg or "success" in msg:
+                
+                if "otp successfully generated" in msg:
+                    user_states[user_id] = {"stage": "awaiting_otp", "phone": phone}
+                    await safe_reply(update.message, "✅ OTP sent successfully, please enter the OTP.")
+                    break
+                elif "pin not allowed" in msg:
                     user_states[user_id] = {"stage": "logged_in", "phone": phone}
                     await safe_reply(
                         update.message,
-                        "✅ آپ کی OTP کامیابی سے ویریفائی ہو چکی ہے! اب آپ اپنا MB کلیم کر سکتے ہیں۔",
+                        "ℹ️ Number already verified.",
                         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📦 Claim Your MB", callback_data="claim_menu")]])
                     )
                     break
-                # Wrong OTP
-                elif "wrong otp" in msg or "invalid otp" in msg or "otp verification failed" in msg:
-                    user_states[user_id] = {"stage": "awaiting_otp", "phone": phone}
-                    await safe_reply(
-                        update.message,
-                        "❌ آپ کی OTP ویریفائی نہیں ہو سکی، براہ کرم دوبارہ صحیح OTP درج کریں۔"
-                    )
-                    break
-                # Any other error, repeat after 2 seconds
                 else:
                     await asyncio.sleep(2)
 
-        task = asyncio.create_task(otp_worker())
+        task = asyncio.create_task(login_task())
         active_claim_tasks[user_id] = task
         task.add_done_callback(lambda _: active_claim_tasks.pop(user_id, None))
-        await safe_reply(update.message, f"🔄 OTP ویریفیکیشن شروع ہو گئی ہے! ویریفائی ہوتے ہی اطلاع ملے گی۔")
+        await safe_reply(update.message, "🔄 Login process started!")
 
-    # --- CLAIM MULTIPLE NUMBERS ---
+    elif state.get("stage") == "awaiting_otp":
+        phone = state.get("phone")
+        otp = text
+        
+        async def otp_task():
+            while True:
+                if user_cancel_flags.get(user_id, False):
+                    await safe_reply(update.message, "🛑 Process stopped.")
+                    user_cancel_flags[user_id] = False
+                    break
+                
+                data = await fetch_json(f"https://data-api.impossible-world.xyz/api/log?num={phone}&otp={otp}")
+                msg = (data.get("message") or "").lower()
+                
+                if "otp verified" in msg or "success" in msg:
+                    user_states[user_id] = {"stage": "logged_in", "phone": phone}
+                    await safe_reply(
+                        update.message,
+                        "✅ OTP verified successfully!",
+                        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📦 Claim Your MB", callback_data="claim_menu")]])
+                    )
+                    break
+                elif "wrong otp" in msg or "invalid otp" in msg:
+                    await safe_reply(update.message, "❌ Wrong OTP, please try again.")
+                    break
+                else:
+                    await asyncio.sleep(2)
+
+        task = asyncio.create_task(otp_task())
+        active_claim_tasks[user_id] = task
+        task.add_done_callback(lambda _: active_claim_tasks.pop(user_id, None))
+        await safe_reply(update.message, "🔄 Verifying OTP...")
+
     elif state.get("stage") == "awaiting_phone_for_claim":
         phones = text.split()
         valid_phones = [p for p in phones if p.isdigit() and len(p) >= 10]
 
         if not valid_phones:
-            await safe_reply(update.message, "⚠️ براہ کرم درست نمبر درج کریں (مثال: 03001234567 03007654321)")
+            await safe_reply(update.message, "⚠️ Please enter valid phone numbers")
             return
 
-        if not valid_phones:
-            return
-
-       
         if user_id in active_claim_tasks:
-            await safe_reply(update.message, "⚠️ آپ کا ایک claim process پہلے سے چل رہا ہے، براہ کرم ختم ہونے کا انتظار کریں۔")
+            await safe_reply(update.message, "⚠️ Claim process already running")
             return
 
-
-        task = asyncio.create_task(handle_claim_process(update.message, user_id, valid_phones, state.get("claim_type")))
+        claim_type = state.get("claim_type", "5gb")
+        task = asyncio.create_task(handle_claim_process(update.message, user_id, valid_phones, claim_type))
         active_claim_tasks[user_id] = task
         task.add_done_callback(lambda _: active_claim_tasks.pop(user_id, None))
-
-        await safe_reply(update.message, "⏳ آپ کا claim process شروع ہو گیا ہے، رزلٹ آتے ہی آپ کو بتایا جائے گا۔")
+        await safe_reply(update.message, "⏳ Claim process started!")
 
     else:
-        await safe_reply(update.message, "ℹ️ براہ کرم /start استعمال کریں۔")
+        await safe_reply(update.message, "ℹ️ Please use /start")
 
-
-async def handle_claim_process(message, user_id, valid_phones, claim_type):
-    package_activated_any = False
-    success_counts = {p: 0 for p in valid_phones}
-
-    for i in range(1, request_count + 1):
-        # اگر user نے /stop کیا ہو تو پراسس فوراً روک دیں
-        if user_cancel_flags.get(user_id, False):
-            await safe_reply(message, "🛑 آپ کی ریکویسٹز روک دی گئی ہیں۔")
-            user_cancel_flags[user_id] = False
-            return
-
-        for phone in list(valid_phones):
-            # دوبارہ چیک کریں اگر پراسس روکا گیا ہو تو فوراً break
+async def handle_claim_process(message, user_id, phones, claim_type):
+    for phone in phones:
+        for i in range(1, request_count + 1):
             if user_cancel_flags.get(user_id, False):
-                await safe_reply(message, "🛑 آپ کی ریکویسٹز روک دی گئی ہیں۔")
+                await safe_reply(message, "🛑 Process stopped by user.")
                 user_cancel_flags[user_id] = False
                 return
 
@@ -352,200 +272,123 @@ async def handle_claim_process(message, user_id, valid_phones, claim_type):
                 else f"https://data-api.impossible-world.xyz/api/acti?number={phone}"
             )
 
-            resp = await fetch_json(url)
-
-            if isinstance(resp, dict):
-                status_text = resp.get("status", "❌ کوئی اسٹیٹس موصول نہیں ہوا")
-                await safe_reply(message, f"[{phone}] ریکویسٹ {i}: {status_text}")
-
-                # ---------- OTP Verificaiton Check (any spelling & lower-case) ----------
-                if "otp verific" in status_text.lower() and "nhe keya" in status_text.lower():
-                    await safe_reply(
-                        message,
-                        f"[{phone}] ❌ پہلے OTP ویریفائی کریں!",
-                        reply_markup=InlineKeyboardMarkup(
-                            [[InlineKeyboardButton("🔑 Login", callback_data="login")]]
-                        )
-                    )
-                    user_states[user_id] = {"stage": "awaiting_phone_for_login"}
-                    return  # پورا فنکشن ختم
-
-                # Success submit
-                if "your request has been successfully received" in status_text.lower():
-                    blocked_numbers.add(phone)
+            try:
+                data = await fetch_json(url)
+                msg = (data.get("message") or "").lower()
+                
+                if "success" in msg or "activated" in msg:
+                    await safe_reply(message, f"[{phone}] Request {i}: ✅ Success")
                     activated_numbers.add(phone)
-                    await safe_reply(message, f"[{phone}] ✅ کامیابی سے ہو گیا")
-                    valid_phones.remove(phone)
-                    continue
-
-                # Activated success
-                if "success" in status_text.lower() or "activated" in status_text.lower():
-                    package_activated_any = True
-                    success_counts[phone] += 1
-                    if success_counts[phone] >= 3:
-                        blocked_numbers.add(phone)
-                        activated_numbers.add(phone)
-                        await safe_reply(message, f"[{phone}] ✅ 3 بار کامیابی، نمبر block کر دیا گیا۔")
-                        valid_phones.remove(phone)
-                        continue
-            else:
-                await safe_reply(message, f"[{phone}] ریکویسٹ {i}: ❌ API ایرر: {resp}")
-
-            await asyncio.sleep(0.5)
-
-        if not valid_phones:
-            break
-
-        await asyncio.sleep(1)
-
-    if not package_activated_any:
-        await safe_reply(message, "Thanks for using my bot")
+                else:
+                    await safe_reply(message, f"[{phone}] Request {i}: ❌ {msg}")
+                
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                await safe_reply(message, f"[{phone}] Request {i}: ❌ Error: {str(e)}")
+                await asyncio.sleep(0.5)
 
     user_states[user_id] = {"stage": "logged_in"}
 
-# Global flag
-requests_enabled = True
+# --------- ADMIN COMMANDS ----------
+async def set_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global request_count
+    try:
+        count = int(context.args[0])
+        if count < 1:
+            raise ValueError
+        request_count = count
+        await update.message.reply_text(f"✅ Request count set to {count}")
+    except (IndexError, ValueError):
+        await update.message.reply_text("⚠️ Usage: /set 5 (where 5 is the number of requests)")
 
 async def turn_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global requests_enabled
     requests_enabled = True
-    await update.message.reply_text("✅ API ریکویسٹز اب فعال ہیں۔")
+    await update.message.reply_text("✅ Requests enabled")
 
 async def turn_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global requests_enabled
     requests_enabled = False
-    await update.message.reply_text("⛔ API ریکویسٹز اب بند ہیں۔ براہ کرم بعد میں کوشش کریں۔")
-
-# --------- ERROR HANDLER ----------
-async def error_handler(update, context):
-    logger.error(f"Update {update} caused error {context.error}")
-
-async def del_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global blocked_numbers
-    try:
-        number = context.args[0]
-    except (IndexError, ValueError):
-        await update.message.reply_text("⚠️ صحیح استعمال: /del 03001234567")
-        return
-
-    if number in blocked_numbers:
-        blocked_numbers.remove(number)
-        await update.message.reply_text(f"✅ نمبر {number} بلاک لسٹ سے نکال دیا گیا ہے۔")
-    else:
-        await update.message.reply_text(f"ℹ️ نمبر {number} بلاک لسٹ میں نہیں تھا۔")
-        
-# --------- STARTUP / SHUTDOWN ----------
-async def on_startup(app):
-    await start_session()
-
-async def on_shutdown(app):
-    await close_session()
-
-async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("⚠️ صحیح استعمال: /login 03001234567")
-        return
-    phone = context.args[0]
-    user_id = update.message.from_user.id
-    state = user_states.get(user_id, {})
-    if user_id in active_claim_tasks:
-        await update.message.reply_text("⏳ آپ کا لاگ ان پراسیس پہلے سے چل رہا ہے۔ /stop 🛑")
-        return
-    task = asyncio.create_task(repeat_login_api(user_id, phone, update.message))
-    active_claim_tasks[user_id] = task
-    task.add_done_callback(lambda _: active_claim_tasks.pop(user_id, None))
-    await update.message.reply_text(f"🔄 لاگ ان پراسیس شروع ہو گیا ہے! جیسے ہی OTP سینڈ ہوگا آپ کو اطلاع دی جائے گی۔ /stop 🛑")
-    
-async def claim_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global blocked_numbers, activated_numbers
-    if not context.args:
-        await update.message.reply_text("⚠️ صحیح استعمال: /claim 03001234567")
-        return
-    phone = context.args[0]
-    user_id = update.message.from_user.id
-    
-
-    if user_id in active_claim_tasks:
-        await update.message.reply_text("⚠️ آپ کا ایک claim process پہلے سے چل رہا ہے، براہ کرم ختم ہونے کا انتظار کریں۔")
-        return
-
-    # Claim process for 100GB
-    task = asyncio.create_task(handle_claim_process(update.message, user_id, [phone], "100gb"))
-    active_claim_tasks[user_id] = task
-    task.add_done_callback(lambda _: active_claim_tasks.pop(user_id, None))
-    await update.message.reply_text("⏳ آپ کا 100GB کلیم پراسیس شروع ہو گیا ہے، رزلٹ آتے ہی آپ کو بتایا جائے گا۔")
+    await update.message.reply_text("⛔ Requests disabled")
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global requests_enabled, blocked_numbers, activated_numbers, active_claim_tasks, request_count
-
     status_text = (
-        f"📊 **Bot Status**\n"
-        f"🔹 API Requests: {'✅ On' if requests_enabled else '⛔ Off'}\n"
-        f"🔹 Request Count: {request_count}\n"
-        f"🔹 Blocked Numbers: {len(blocked_numbers)}\n"
-        f"🔹 Activated Numbers: {len(activated_numbers)}\n"
-        f"🔹 Active Claim Tasks: {len(active_claim_tasks)}"
+        f"📊 Bot Status\n"
+        f"🔹 Requests: {'✅ On' if requests_enabled else '⛔ Off'}\n"
+        f"🔹 Request count: {request_count}\n"
+        f"🔹 Blocked numbers: {len(blocked_numbers)}\n"
+        f"🔹 Activated numbers: {len(activated_numbers)}\n"
+        f"🔹 Active tasks: {len(active_claim_tasks)}"
     )
-
-    await update.message.reply_text(status_text, parse_mode="Markdown")
+    await update.message.reply_text(status_text)
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
     user_cancel_flags[user_id] = True
-    await update.message.reply_text("🛑 آپ کا پراسیس روک دیا گیا ہے۔")
+    await update.message.reply_text("🛑 Process stopped")
 
-# --------- MAIN ----------
-from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logger.error(f"Update {update} caused error {context.error}", exc_info=context.error)
 
-TOKENS = [
-    "8276543608:AAEbE-8J3ueGMAGQtWeedcMry3iDjAivG0U",
-    "8224844544:AAFpI-iycJQCyzu0FAduPjn5ztos3Rylr3Q",
-    "8356375247:AAH_EGWGTiouHMI0Ba-CkY66K4DXcBQPzVs",
-    "8020275808:AAGWNYI4SPYJ2yQ_F7INbH8ZcwDuYPqil10",
-    "8407271613:AAGSKdrwamP2GOKklg3_Be2xGQiNip5hVmw",
-    "8403628798:AAHW3XuyMZpgfKt2mEJwS0tMTvTtoxSyhck",
-    "7787284037:AAGWstgBGla0B06B_3Re1A6WJbux_703hgQ",
-    "8335584448:AAGmW5n4_xwN9MfMeDL8jBMUsOBEMj42D7Y",
-    "7459204571:AAEo-CD_K9FjOPiKdg3gXSvAOat55h37Y0Q",
-    # جتنے چاہیں ٹوکن یہاں ڈالیں
-]
-
-def add_all_handlers(app):
+# --------- MAIN FUNCTION ----------
+async def run_bot(token):
+    app = ApplicationBuilder().token(token).build()
+    
+    # Add handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), message_handler))
-    app.add_error_handler(error_handler)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     app.add_handler(CommandHandler("set", set_command))
     app.add_handler(CommandHandler("on", turn_on))
     app.add_handler(CommandHandler("off", turn_off))
-    app.add_handler(CommandHandler("login", login_command))
-    app.add_handler(CommandHandler("claim", claim_command))
-    app.add_handler(CommandHandler("del", del_command))
     app.add_handler(CommandHandler("status", status_command))
     app.add_handler(CommandHandler("stop", stop_command))
-
-import asyncio
+    app.add_error_handler(error_handler)
+    
+    await app.initialize()
+    await app.start()
+    logger.info(f"Bot with token {token[-5:]} started successfully")
+    return app
 
 async def main():
-    apps = []
-
-    # سب bots initialize اور start کرو
-    for token in TOKENS:
-        app = ApplicationBuilder().token(token).build()
-        add_all_handlers(app)
-        await app.initialize()
-        await app.start()
-        apps.append(app)
-        print(f"Bot started with token: {token}")
-
-    # bots کو running رکھو
+    await init_session()
+    
+    TOKENS = [
+            "8276543608:AAEbE-8J3ueGMAGQtWeedcMry3iDjAivG0U",
+            "8224844544:AAFpI-iycJQCyzu0FAduPjn5ztos3Rylr3Q",
+            "8356375247:AAH_EGWGTiouHMI0Ba-CkY66K4DXcBQPzVs",
+            "8020275808:AAGWNYI4SPYJ2yQ_F7INbH8ZcwDuYPqil10",
+            "8407271613:AAGSKdrwamP2GOKklg3_Be2xGQiNip5hVmw",
+            "8403628798:AAHW3XuyMZpgfKt2mEJwS0tMTvTtoxSyhck",
+            "7787284037:AAGWstgBGla0B06B_3Re1A6WJbux_703hgQ",
+            "8335584448:AAGmW5n4_xwN9MfMeDL8jBMUsOBEMj42D7Y",
+            "7459204571:AAEo-CD_K9FjOPiKdg3gXSvAOat55h37Y0Q",
+    
+    ]
+    
+    bots = []
     try:
-        await asyncio.Event().wait()  # یہ infinite wait کرے گا جب تک manually stop نہ کرو
+        for token in TOKENS:
+            try:
+                bot = await run_bot(token)
+                bots.append(bot)
+            except Exception as e:
+                logger.error(f"Failed to start bot with token {token[-5:]}: {e}")
+        
+        # Keep running
+        while True:
+            await asyncio.sleep(3600)
+            
+    except asyncio.CancelledError:
+        pass
     finally:
-        # سارے bots stop اور shutdown کرو
-        for app in apps:
-            await app.stop()
-            await app.shutdown()
+        for bot in bots:
+            await bot.stop()
+            await bot.shutdown()
+        await close_session()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
