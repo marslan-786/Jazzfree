@@ -1,6 +1,6 @@
 import aiohttp
 import asyncio
-import json
+import os
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import Forbidden, BadRequest
@@ -8,6 +8,8 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler,
     MessageHandler, filters, ContextTypes
 )
+from fastapi import FastAPI, Request
+import uvicorn
 
 # Logging setup
 logging.basicConfig(
@@ -112,7 +114,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Callback answer error: {e}")
 
     if query.data == "joined":
-        # Check if user has joined all channels
         all_joined = True
         for ch in channels:
             if ch.get("id"):
@@ -142,11 +143,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("Claim Weekly", callback_data="claim_5gb")],
             [InlineKeyboardButton("Claim Monthly", callback_data="claim_100gb")]
         ]
-        await safe_edit(
-            query,
-            "Choose your claim option:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        await safe_edit(query, "Choose your claim option:", reply_markup=InlineKeyboardMarkup(keyboard))
 
     elif query.data in ["claim_5gb", "claim_100gb"]:
         user_states[user_id] = {
@@ -167,7 +164,6 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_reply(update.message, "⚠️ Requests are currently disabled.")
         return
 
-    # Handle different states
     if state.get("stage") == "awaiting_phone_for_login":
         phone = text
         if user_id in active_claim_tasks:
@@ -331,7 +327,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Update {update} caused error {context.error}", exc_info=context.error)
 
 # --------- MAIN FUNCTION ----------
-async def run_bot(token):
+async def setup_bot(token):
     app = ApplicationBuilder().token(token).build()
     
     # Add handlers
@@ -345,47 +341,79 @@ async def run_bot(token):
     app.add_handler(CommandHandler("stop", stop_command))
     app.add_error_handler(error_handler)
     
-    await app.initialize()
-    await app.start()
-    logger.info(f"Bot with token {token[-5:]} started successfully")
     return app
 
 async def main():
     await init_session()
     
     TOKENS = [
-            "8276543608:AAEbE-8J3ueGMAGQtWeedcMry3iDjAivG0U",
-            "8224844544:AAFpI-iycJQCyzu0FAduPjn5ztos3Rylr3Q",
-            "8356375247:AAH_EGWGTiouHMI0Ba-CkY66K4DXcBQPzVs",
-            "8020275808:AAGWNYI4SPYJ2yQ_F7INbH8ZcwDuYPqil10",
-            "8407271613:AAGSKdrwamP2GOKklg3_Be2xGQiNip5hVmw",
-            "8403628798:AAHW3XuyMZpgfKt2mEJwS0tMTvTtoxSyhck",
-            "7787284037:AAGWstgBGla0B06B_3Re1A6WJbux_703hgQ",
-            "8335584448:AAGmW5n4_xwN9MfMeDL8jBMUsOBEMj42D7Y",
-            "7459204571:AAEo-CD_K9FjOPiKdg3gXSvAOat55h37Y0Q",
-    
+        "8276543608:AAEbE-8J3ueGMAGQtWeedcMry3iDjAivG0U",
+        "8224844544:AAFpI-iycJQCyzu0FAduPjn5ztos3Rylr3Q",
+        "8356375247:AAH_EGWGTiouHMI0Ba-CkY66K4DXcBQPzVs",
+        "8020275808:AAGWNYI4SPYJ2yQ_F7INbH8ZcwDuYPqil10",
+        "8407271613:AAGSKdrwamP2GOKklg3_Be2xGQiNip5hVmw",
+        "8403628798:AAHW3XuyMZpgfKt2mEJwS0tMTvTtoxSyhck",
+        "7787284037:AAGWstgBGla0B06B_3Re1A6WJbux_703hgQ",
+        "8335584448:AAGmW5n4_xwN9MfMeDL8jBMUsOBEMj42D7Y",
+        "7459204571:AAEo-CD_K9FjOPiKdg3gXSvAOat55h37Y0Q",
     ]
     
-    bots = []
-    try:
+    PORT = int(os.environ.get("PORT", 8000))
+    WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
+    
+    if WEBHOOK_URL:
+        # Webhook mode for Railway
+        server = FastAPI()
+        apps = {}
+        
+        @server.post("/{token}")
+        async def webhook(request: Request, token: str):
+            app = apps.get(token)
+            if app:
+                data = await request.json()
+                update = Update.de_json(data, app.bot)
+                await app.update_queue.put(update)
+            return {"status": "ok"}
+        
+        # Setup all bots
         for token in TOKENS:
             try:
-                bot = await run_bot(token)
-                bots.append(bot)
+                app = await setup_bot(token)
+                await app.bot.set_webhook(f"{WEBHOOK_URL}/{token}")
+                apps[token] = app
+                logger.info(f"Bot with token {token[-5:]} setup with webhook")
             except Exception as e:
-                logger.error(f"Failed to start bot with token {token[-5:]}: {e}")
+                logger.error(f"Failed to setup bot with token {token[-5:]}: {e}")
         
-        # Keep running
-        while True:
-            await asyncio.sleep(3600)
+        config = uvicorn.Config(
+            server,
+            host="0.0.0.0",
+            port=PORT,
+            log_level="info"
+        )
+        server = uvicorn.Server(config)
+        await server.serve()
+    else:
+        # Polling mode for local development
+        bots = []
+        try:
+            for token in TOKENS:
+                try:
+                    app = await setup_bot(token)
+                    await app.initialize()
+                    await app.start()
+                    bots.append(app)
+                    logger.info(f"Bot with token {token[-5:]} started with polling")
+                except Exception as e:
+                    logger.error(f"Failed to start bot with token {token[-5:]}: {e}")
             
-    except asyncio.CancelledError:
-        pass
-    finally:
-        for bot in bots:
-            await bot.stop()
-            await bot.shutdown()
-        await close_session()
+            while True:
+                await asyncio.sleep(3600)
+        finally:
+            for app in bots:
+                await app.stop()
+                await app.shutdown()
+            await close_session()
 
 if __name__ == "__main__":
     try:
