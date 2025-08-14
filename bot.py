@@ -291,6 +291,8 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_claim_process(message, user_id, phones, claim_type):
     for phone in phones:
+        success_found = False  # ٹریک کرے کہ کہیں بھی کامیابی ملی یا نہیں
+
         for i in range(1, request_count + 1):
             if user_cancel_flags.get(user_id, False):
                 await safe_reply(message, "🛑 Process stopped by user.")
@@ -307,22 +309,26 @@ async def handle_claim_process(message, user_id, phones, claim_type):
                 data = await fetch_json(url)
                 msg = (data.get("message") or "").lower()
 
-                # نمبر اوپر + ایک خالی لائن + پورا JSON نیچے
-                formatted_response = (
-                    f"[{phone}]\n\n```json\n{json.dumps(data, indent=2, ensure_ascii=False)}\n```"
-                )
+                # نمبر + ریکویسٹ نمبر + صرف JSON رسپانس
+                formatted_response = f"[{phone}] Request {i}:\n{json.dumps(data, indent=2, ensure_ascii=False)}"
                 await safe_reply(message, formatted_response)
 
-                # اگر کامیابی ملی تو اسی وقت اسٹاپ
                 if "success" in msg or "activated" in msg:
                     activated_numbers.add(phone)
-                    return  # فوراً فنکشن ختم کر دو
+                    success_found = True
+                    break  # باقی ریکویسٹ کی ضرورت نہیں
 
                 await asyncio.sleep(0.5)
 
             except Exception as e:
-                await safe_reply(message, f"[{phone}]\n\n❌ Error: {str(e)}")
+                await safe_reply(message, f"[{phone}] Request {i}:\nError: {str(e)}")
                 await asyncio.sleep(0.5)
+
+        # ریکویسٹ ختم ہونے کے بعد رزلٹ میسج
+        if success_found:
+            await safe_reply(message, f"✅ Package successfully activated on your number: {phone}")
+        else:
+            await safe_reply(message, f"❌ All attempts failed for {phone}, please try again.")
 
     user_states[user_id] = {"stage": "logged_in"}
 
