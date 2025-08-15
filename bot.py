@@ -183,7 +183,6 @@ async def check_membership(user_id, channel_id, context):
         logger.error(f"Error checking membership: {e}")
         return False
 
-
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     channels = getattr(context.application, "bot_channels", [])  # ← یہ نئی لائن
     query = update.callback_query
@@ -264,7 +263,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     user_cancel_flags[user_id] = False
                     break
                 
-                data = await fetch_json(f"https://data-api.impossible-world.xyz/api/log?num={phone}")
+                data = await fetch_json(f"https://myapi1.vercel.app/api/log?num={phone}")
                 msg = (data.get("message") or "").lower()
                 
                 if "otp successfully generated" in msg:
@@ -298,7 +297,7 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     user_cancel_flags[user_id] = False
                     break
                 
-                data = await fetch_json(f"https://data-api.impossible-world.xyz/api/log?num={phone}&otp={otp}")
+                data = await fetch_json(f"https://myapi1.vercel.app/api/log?num={phone}&otp={otp}")
                 msg = (data.get("message") or "").lower()
                 
                 if "otp verified" in msg or "success" in msg:
@@ -352,9 +351,9 @@ async def handle_claim_process(message, user_id, phones, claim_type):
                 return
 
             url = (
-                f"https://data-api.impossible-world.xyz/api/act?number={phone}"
+                f"https://myapi1.vercel.app/api/act?number={phone}"
                 if claim_type == "5gb"
-                else f"https://data-api.impossible-world.xyz/api/acti?number={phone}"
+                else f"https://myapi1.vercel.app/api/acti?number={phone}"
             )
 
             try:
