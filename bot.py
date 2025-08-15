@@ -24,7 +24,9 @@ CHANNEL_1 = [
     {"name": "SYBER EXPERT", "link": "https://t.me/CRACKEDEVER"},
     {"name": "HS TECH", "link": "https://t.me/haseeb117"},
     {"name": "Legend Trick", "link": "https://t.me/+qiK5F-BmdbM1Mzg0"},
-    {"name": "HUNTER", "link": "https://t.me/HunterXSigma"}
+    {"name": "HUNTER", "link": "https://t.me/HunterXSigma"},
+    {"name": "Fast TECH", "link": "https://t.me/fasttech3"},
+    {"name": "Cyber TECH", "link": "https://t.me/mrcyber11"},
 ]
 CHANNEL_2 = [
     {"name": "Fast Tech", "link": "https://t.me/fasttech3"},
