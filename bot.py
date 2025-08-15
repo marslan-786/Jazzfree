@@ -32,6 +32,12 @@ CHANNEL_2 = [
     {"name": "🪞Mr Mirror🪞", "link": "https://t.me/fasttechmirror"},
     {"name": "Impossible", "link": "https://t.me/only_possible_world", "id": "-1002650289632"}
 ]
+
+CHANNEL_3 = [
+    {"name": "Jahanzaib Bloch", "link": "https://t.me/Jahanzaibbaloch1"},
+    {"name": "Impossible", "link": "https://t.me/only_possible_world"},
+    {"name": "Kami Broken", "link": "https://t.me/kami_broken5"}
+]
 # ٹوکن لسٹ اور چینل مینیو میپنگ
 TOKENS = {
     "BOT1": {
@@ -73,6 +79,10 @@ TOKENS = {
     "BOT10": {
         "token": "8372889273:AAEuD1x-BL-K19d-JdEqeJVWke7-p4pwxMo",
         "channels": CHANNEL_2
+    },
+    "BOT11": {
+        "token": "8170933412:AAGsW80ac7L_oSs-CfYm5Z_jth-kLBLuQX0",
+        "channels": CHANNEL_3
     }
 }
 # Global variables
