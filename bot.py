@@ -366,7 +366,12 @@ async def handle_claim_process(message, user_id, phones, claim_type):
                 formatted_response = f"[{phone}] Request {i}:\n{json.dumps(data, indent=2, ensure_ascii=False)}"
                 await safe_reply(message, formatted_response)
 
-                if "success" in msg or "activated" in msg:
+                # --- کامیابی کا چیک ---
+                if (
+                    "success" in msg
+                    or "activated" in msg
+                    or "✅ status: your request has been successfully received".lower() in msg
+                ):
                     activated_numbers.add(phone)
                     success_found = True
                     break  # باقی ریکویسٹ کی ضرورت نہیں
