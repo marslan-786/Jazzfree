@@ -183,6 +183,7 @@ async def check_membership(user_id, channel_id, context):
         logger.error(f"Error checking membership: {e}")
         return False
 
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     channels = getattr(context.application, "bot_channels", [])  # ← یہ نئی لائن
     query = update.callback_query
