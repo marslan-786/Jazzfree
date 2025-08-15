@@ -28,6 +28,8 @@ CHANNEL_1 = [
 ]
 CHANNEL_2 = [
     {"name": "Fast Tech", "link": "https://t.me/fasttech3"},
+    {"name": "Mirror🪞Tech", "link": "https://t.me/mirrorfast"},
+    {"name": "🪞Mr Mirror🪞", "link": "https://t.me/fasttechmirror"},
     {"name": "Impossible", "link": "https://t.me/only_possible_world", "id": "-1002650289632"}
 ]
 # ٹوکن لسٹ اور چینل مینیو میپنگ
