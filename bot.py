@@ -27,7 +27,7 @@ CHANNEL_1 = [
     {"name": "HUNTER", "link": "https://t.me/HunterXSigma"}
 ]
 CHANNEL_2 = [
-    {"name": "HUNTER", "link": "https://t.me/HunterXSigma"},
+    {"name": "Fast Tech", "link": "https://t.me/fasttech3"},
     {"name": "Impossible", "link": "https://t.me/only_possible_world", "id": "-1002650289632"}
 ]
 # ٹوکن لسٹ اور چینل مینیو میپنگ
